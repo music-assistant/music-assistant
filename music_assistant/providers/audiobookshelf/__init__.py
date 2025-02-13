@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -131,6 +132,61 @@ ABSBROWSEITEMSTOPATH: dict[str, str] = {
 }
 
 
+@dataclass(kw_only=True)
+class _ProgressHelper:
+    id_: str  # audiobook or podcast id
+    episode_id: str | None = None
+    last_update: int  # int(time.time())
+
+
+class ProgressesHelper:
+    """Class used to avoid ping pong."""
+
+    def __init__(self) -> None:
+        """Init."""
+        self._progresses: list[_ProgressHelper] = []
+        # that's 30 different streams in mass
+        self._max_progresses = 30
+        # 5s have to have passed before we accept an external progress update
+        self._min_time_between_updates = 5
+
+    def _get_progress(self, item_id: str, episode_id: str | None = None) -> _ProgressHelper | None:
+        if episode_id is None:
+            for x in self._progresses:
+                if x.id_ == item_id:
+                    return x
+        for x in self._progresses:
+            if x.id_ == item_id and x.episode_id == episode_id:
+                return x
+        return None
+
+    def _remove_old_progress(self, item_id: str, episode_id: str | None = None) -> None:
+        """Remove a stored progress if it is available."""
+        progress = self._get_progress(item_id=item_id, episode_id=episode_id)
+        if progress is not None:
+            self._progresses.remove(progress)
+
+    def _remove_oldest(self) -> None:
+        progresses = sorted(self._progresses, key=lambda x: x.last_update)
+        if len(progresses) > 0:
+            self._progresses.remove(progresses[0])
+
+    def add_progress(self, item_id: str, episode_id: str | None = None) -> None:
+        """Store episode progress."""
+        if len(self._progresses) > self._max_progresses:
+            self._remove_oldest()
+        self._remove_old_progress(item_id=item_id, episode_id=episode_id)
+        progress = _ProgressHelper(id_=item_id, episode_id=episode_id, last_update=int(time.time()))
+        self._progresses.append(progress)
+
+    def update_ok(self, item_id: str, episode_id: str | None = None) -> bool:
+        """Check if progress update is ok."""
+        progress = self._get_progress(item_id=item_id, episode_id=episode_id)
+        if progress is None:
+            return True
+        return int(time.time()) - progress.last_update >= self._min_time_between_updates
+
+
 async def setup(
     mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig
 ) -> ProviderInstanceType:
@@ -249,6 +305,12 @@ class Audiobookshelf(MusicProvider):
             on_items_added=self._socket_abs_item_changed,
             on_items_updated=self._socket_abs_item_changed,
         )
+
+        self._client_socket.set_user_callbacks(
+            on_user_item_progress_updated=self._socket_abs_item_progress_updated
+        )
+
+        self.mass_progresses = ProgressesHelper()
 
     async def unload(self, is_removed: bool = False) -> None:
         """
@@ -635,8 +697,15 @@ class Audiobookshelf(MusicProvider):
         """
         if media_type == MediaType.PODCAST_EPISODE:
             abs_podcast_id, abs_episode_id = item_id.split(" ")
+            # avoid ping pong
+            if not self.mass_progresses.update_ok(
+                item_id=abs_podcast_id, episode_id=abs_episode_id
+            ):
+                return
             mass_podcast_episode = await self.get_podcast_episode(item_id)
             duration = mass_podcast_episode.duration
+            # avoid ping pong
+            self.mass_progresses.add_progress(item_id=abs_podcast_id, episode_id=abs_episode_id)
             self.logger.debug(
                 f"Updating media progress of {media_type.value}, title {mass_podcast_episode.name}."
             )
@@ -648,8 +717,13 @@ class Audiobookshelf(MusicProvider):
                 is_finished=fully_played,
             )
         if media_type == MediaType.AUDIOBOOK:
+            # avoid ping pong
+            if not self.mass_progresses.update_ok(item_id=item_id):
+                return
             mass_audiobook = await self.get_audiobook(item_id)
             duration = mass_audiobook.duration
+            # avoid ping pong
+            self.mass_progresses.add_progress(item_id=item_id)
             self.logger.debug(f"Updating {media_type.value} named {mass_audiobook.name} progress")
             await self._client.update_my_media_progress(
                 item_id=item_id,
@@ -1047,6 +1121,62 @@ class Audiobookshelf(MusicProvider):
                 self.logger.debug('Removed %s "%s" via socket.', media_type.value, mass_item.name)
 
         await self._cache_set_helper_libraries()
+
+    async def _socket_abs_item_progress_updated(self, id_: str, progress: MediaProgress) -> None:
+        """To update continue listening.
+
+        ABS reports every 15s and immediately on play state change.
+        """
+        item_id = progress.library_item_id
+        episode_id = progress.episode_id
+        # avoid ping pong
+        if not self.mass_progresses.update_ok(item_id=item_id, episode_id=episode_id):
+            return
+
+        self.mass_progresses.add_progress(item_id=item_id, episode_id=episode_id)
+
+        if episode_id is None:
+            abs_audiobook = await self._get_cached_audiobook(item_id)
+            mass_audiobook = parse_audiobook(
+                abs_audiobook=abs_audiobook,
+                lookup_key=self.lookup_key,
+                domain=self.domain,
+                instance_id=self.instance_id,
+                token=self._client.token,
+                base_url=str(self.config.get_value(CONF_URL)).rstrip("/"),
+            )
+            await self.mass.music.mark_item_played(
+                mass_audiobook,
+                fully_played=progress.is_finished,
+                seconds_played=int(progress.current_time),
+            )
+            self.logger.debug("Updated audiobook progress %s via socket", item_id)
+            # no need to cache, progress is always on demand when playing
+            return
+
+        abs_podcast = await self._get_cached_podcast(prov_podcast_id=item_id)
+        mass_episode: PodcastEpisode | None = None
+        for abs_episode in abs_podcast.media.episodes:
+            if abs_episode.id_ == episode_id:
+                mass_episode = parse_podcast_episode(
+                    episode=abs_episode,
+                    prov_podcast_id=item_id,
+                    lookup_key=self.lookup_key,
+                    domain=self.domain,
+                    instance_id=self.instance_id,
+                    token=self._client.token,
+                    base_url=str(self.config.get_value(CONF_URL)).rstrip("/"),
+                    media_progress=progress,
+                )
+            break
+        if mass_episode is None:
+            return
+        await self.mass.music.mark_item_played(
+            mass_episode,
+            fully_played=progress.is_finished,
+            seconds_played=int(progress.current_time),
+        )
+        self.logger.debug("Updated podcast episode progress %s via socket", item_id)
 
     async def _cache_set_helper_libraries(self) -> None:
         await self.mass.cache.set(
