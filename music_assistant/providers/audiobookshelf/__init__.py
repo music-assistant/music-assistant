@@ -143,8 +143,9 @@ class ProgressesHelper:
         self._progresses: list[_ProgressHelper] = []
         # that's 30 different streams in mass
         self._max_progresses = 30
-        # 5s have to have passed before we accept an external progress update
-        self._min_time_between_updates = 5
+        # 12s have to have passed before we accept an external progress update
+        # abs updates every 15 s
+        self._min_time_between_updates = 12
 
     def _get_progress(self, item_id: str, episode_id: str | None = None) -> _ProgressHelper | None:
         if episode_id is None:
@@ -175,7 +176,7 @@ class ProgressesHelper:
         progress = _ProgressHelper(id_=item_id, episode_id=episode_id, last_update=int(time.time()))
         self._progresses.append(progress)
 
-    def update_ok(self, item_id: str, episode_id: str | None = None) -> bool:
+    def guard_ok(self, item_id: str, episode_id: str | None = None) -> bool:
         """Check if progress update is ok."""
         progress = self._get_progress(item_id=item_id, episode_id=episode_id)
         if progress is None:
@@ -677,15 +678,14 @@ class Audiobookshelf(MusicProvider):
         """
         if media_type == MediaType.PODCAST_EPISODE:
             abs_podcast_id, abs_episode_id = item_id.split(" ")
-            # avoid ping pong
-            if not self.mass_progresses.update_ok(
-                item_id=abs_podcast_id, episode_id=abs_episode_id
-            ):
+
+            # guard
+            if not self.mass_progresses.guard_ok(item_id=abs_podcast_id, episode_id=abs_episode_id):
                 return
+            self.mass_progresses.add_progress(item_id=abs_podcast_id, episode_id=abs_episode_id)
+
             mass_podcast_episode = await self.get_podcast_episode(item_id)
             duration = mass_podcast_episode.duration
-            # avoid ping pong
-            self.mass_progresses.add_progress(item_id=abs_podcast_id, episode_id=abs_episode_id)
             self.logger.debug(
                 f"Updating media progress of {media_type.value}, title {mass_podcast_episode.name}."
             )
@@ -697,13 +697,13 @@ class Audiobookshelf(MusicProvider):
                 is_finished=fully_played,
             )
         if media_type == MediaType.AUDIOBOOK:
-            # avoid ping pong
-            if not self.mass_progresses.update_ok(item_id=item_id):
+            # guard
+            if not self.mass_progresses.guard_ok(item_id=item_id):
                 return
+            self.mass_progresses.add_progress(item_id=item_id)
+
             mass_audiobook = await self.get_audiobook(item_id)
             duration = mass_audiobook.duration
-            # avoid ping pong
-            self.mass_progresses.add_progress(item_id=item_id)
             self.logger.debug(f"Updating {media_type.value} named {mass_audiobook.name} progress")
             await self._client.update_my_media_progress(
                 item_id=item_id,
@@ -1097,10 +1097,10 @@ class Audiobookshelf(MusicProvider):
         """
         item_id = progress.library_item_id
         episode_id = progress.episode_id
-        # avoid ping pong
-        if not self.mass_progresses.update_ok(item_id=item_id, episode_id=episode_id):
-            return
 
+        # guard
+        if not self.mass_progresses.guard_ok(item_id=item_id, episode_id=episode_id):
+            return
         self.mass_progresses.add_progress(item_id=item_id, episode_id=episode_id)
 
         if episode_id is None:
@@ -1119,28 +1119,31 @@ class Audiobookshelf(MusicProvider):
             # no need to cache, progress is always on demand when playing
             return
 
-        # mass_episode: PodcastEpisode | None = None
-        # for abs_episode in abs_podcast.media.episodes:
-        #     if abs_episode.id_ == episode_id:
-        #         mass_episode = parse_podcast_episode(
-        #             episode=abs_episode,
-        #             prov_podcast_id=item_id,
-        #             lookup_key=self.lookup_key,
-        #             domain=self.domain,
-        #             instance_id=self.instance_id,
-        #             token=self._client.token,
-        #             base_url=str(self.config.get_value(CONF_URL)).rstrip("/"),
-        #             media_progress=progress,
-        #         )
-        #     break
-        # if mass_episode is None:
-        #     return
-        # await self.mass.music.mark_item_played(
-        #     mass_episode,
-        #     fully_played=progress.is_finished,
-        #     seconds_played=int(progress.current_time),
-        # )
-        # self.logger.debug("Updated podcast episode progress %s via socket", item_id)
+        abs_podcast = await self._get_abs_expanded_podcast(prov_podcast_id=item_id)
+        episode_cnt = 1
+        mass_episode: PodcastEpisode | None = None
+        for abs_episode in abs_podcast.media.episodes:
+            if abs_episode.id_ == episode_id:
+                mass_episode = parse_podcast_episode(
+                    episode=abs_episode,
+                    prov_podcast_id=item_id,
+                    fallback_episode_cnt=episode_cnt,
+                    lookup_key=self.lookup_key,
+                    domain=self.domain,
+                    instance_id=self.instance_id,
+                    token=self._client.token,
+                    base_url=str(self.config.get_value(CONF_URL)).rstrip("/"),
+                )
+
+            episode_cnt += 1
+        if mass_episode is None:
+            return
+        await self.mass.music.mark_item_played(
+            mass_episode,
+            fully_played=progress.is_finished,
+            seconds_played=int(progress.current_time),
+        )
+        self.logger.debug("Updated podcast progress %s via socket", item_id)
 
     async def _cache_set_helper_libraries(self) -> None:
         await self.mass.cache.set(
