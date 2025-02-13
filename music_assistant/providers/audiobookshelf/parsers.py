@@ -199,7 +199,6 @@ def parse_audiobook(
 
     # expanded version
     if isinstance(abs_audiobook, AbsLibraryItemExpandedBook):
-        narrators: UniqueList[str] = UniqueList(abs_audiobook.media.metadata.narrators)
         mass_audiobook.authors.set([x.name for x in abs_audiobook.media.metadata.authors])
         mass_audiobook.narrators.set(abs_audiobook.media.metadata.narrators)
         chapters = []
