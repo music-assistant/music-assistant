@@ -63,16 +63,12 @@ CONF_VERIFY_SSL = "verify_ssl"
 # optionally hide podcasts with no episodes
 CONF_HIDE_EMPTY_PODCASTS = "hide_empty_podcasts"
 
-# cache category for an abs podcast
-CACHE_CATEGORY_PODCASTS = 0
-# cache category for an abs audiobook
-CACHE_CATEGORY_AUDIOBOOKS = 1
 # We do _not_ store the full library, just the helper classes LibrariesHelper/ LibraryHelper,
 # see below, i.e. only uuids and the lib's name.
 # Caching these can be removed, but I'd then have to iterate the full item list
 # within the browse function if the user wishes to see all audiobooks/ podcasts
 # of a library.
-CACHE_CATEGORY_LIBRARIES = 2
+CACHE_CATEGORY_LIBRARIES = 0
 CACHE_KEY_LIBRARIES = "libraries"
 
 
@@ -331,12 +327,16 @@ class Audiobookshelf(MusicProvider):
     async def sync_library(self, media_types: tuple[MediaType, ...]) -> None:
         """Obtain audiobook library ids and podcast library ids."""
         libraries = await self._client.get_all_libraries()
-        # we can overwrite all libs with empty ids here, as they are directly
-        # filled afterwards again.
         for library in libraries:
-            if library.media_type == AbsLibraryMediaType.BOOK:
+            if (
+                library.media_type == AbsLibraryMediaType.BOOK
+                and MediaType.AUDIOBOOK in media_types
+            ):
                 self.libraries.audiobooks[library.id_] = LibraryHelper(name=library.name)
-            elif library.media_type == AbsLibraryMediaType.PODCAST:
+            elif (
+                library.media_type == AbsLibraryMediaType.PODCAST
+                and MediaType.PODCAST in media_types
+            ):
                 self.libraries.podcasts[library.id_] = LibraryHelper(name=library.name)
         await super().sync_library(media_types=media_types)
         await self._cache_set_helper_libraries()
@@ -371,23 +371,15 @@ class Audiobookshelf(MusicProvider):
                         and mass_podcast.total_episodes == 0
                     ):
                         continue
-                    await self._cache_set_podcast(podcast_expanded)
                     yield mass_podcast
 
-    async def _get_cached_podcast(self, prov_podcast_id: str) -> AbsLibraryItemExpandedPodcast:
-        cached_podcast = await self.mass.cache.get(
-            key=prov_podcast_id,
-            base_key=self.cache_base_key,
-            category=CACHE_CATEGORY_PODCASTS,
-            default=None,
+    async def _get_abs_expanded_podcast(
+        self, prov_podcast_id: str
+    ) -> AbsLibraryItemExpandedPodcast:
+        abs_podcast = await self._client.get_library_item_podcast(
+            podcast_id=prov_podcast_id, expanded=True
         )
-        if cached_podcast is None:
-            abs_podcast = await self._client.get_library_item_podcast(
-                podcast_id=prov_podcast_id, expanded=True
-            )
-            assert isinstance(abs_podcast, AbsLibraryItemExpandedPodcast)
-        else:
-            abs_podcast = AbsLibraryItemExpandedPodcast.from_dict(cached_podcast)
+        assert isinstance(abs_podcast, AbsLibraryItemExpandedPodcast)
 
         return abs_podcast
 
@@ -400,7 +392,7 @@ class Audiobookshelf(MusicProvider):
         ),
         would be sufficient, but we rely on cache.
         """
-        abs_podcast = await self._get_cached_podcast(prov_podcast_id=prov_podcast_id)
+        abs_podcast = await self._get_abs_expanded_podcast(prov_podcast_id=prov_podcast_id)
         return parse_podcast(
             abs_podcast=abs_podcast,
             lookup_key=self.lookup_key,
@@ -415,7 +407,7 @@ class Audiobookshelf(MusicProvider):
 
         Adds progress information.
         """
-        abs_podcast = await self._get_cached_podcast(prov_podcast_id=prov_podcast_id)
+        abs_podcast = await self._get_abs_expanded_podcast(prov_podcast_id=prov_podcast_id)
         episode_list = []
         episode_cnt = 1
         # the user has the progress of all media items
@@ -447,7 +439,7 @@ class Audiobookshelf(MusicProvider):
     async def get_podcast_episode(self, prov_episode_id: str) -> PodcastEpisode:
         """Get single podcast episode."""
         prov_podcast_id, e_id = prov_episode_id.split(" ")
-        abs_podcast = await self._get_cached_podcast(prov_podcast_id=prov_podcast_id)
+        abs_podcast = await self._get_abs_expanded_podcast(prov_podcast_id=prov_podcast_id)
         episode_cnt = 1
         for abs_episode in abs_podcast.media.episodes:
             if abs_episode.id_ == e_id:
@@ -484,7 +476,6 @@ class Audiobookshelf(MusicProvider):
                 # use expanded version for chapters/ caching.
                 books_expanded = await self._client.get_library_item_batch_book(item_ids=book_ids)
                 for book_expanded in books_expanded:
-                    await self._cache_set_audiobook(book_expanded)
                     mass_audiobook = parse_audiobook(
                         abs_audiobook=book_expanded,
                         lookup_key=self.lookup_key,
@@ -495,19 +486,12 @@ class Audiobookshelf(MusicProvider):
                     )
                     yield mass_audiobook
 
-    async def _get_cached_audiobook(self, prov_audiobook_id: str) -> AbsLibraryItemExpandedBook:
-        cached_audiobook = await self.mass.cache.get(
-            key=prov_audiobook_id,
-            base_key=self.cache_base_key,
-            category=CACHE_CATEGORY_AUDIOBOOKS,
-            default=None,
+    async def _get_abs_expanded_audiobook(
+        self, prov_audiobook_id: str
+    ) -> AbsLibraryItemExpandedBook:
+        abs_audiobook = await self._client.get_library_item_book(
+            book_id=prov_audiobook_id, expanded=True
         )
-        if cached_audiobook is None:
-            abs_audiobook = await self._client.get_library_item_book(
-                book_id=prov_audiobook_id, expanded=True
-            )
-        else:
-            abs_audiobook = AbsLibraryItemExpandedBook.from_dict(cached_audiobook)
         assert isinstance(abs_audiobook, AbsLibraryItemExpandedBook)
 
         return abs_audiobook
@@ -518,7 +502,7 @@ class Audiobookshelf(MusicProvider):
         Progress is added here.
         """
         progress = await self._client.get_my_media_progress(item_id=prov_audiobook_id)
-        abs_audiobook = await self._get_cached_audiobook(prov_audiobook_id=prov_audiobook_id)
+        abs_audiobook = await self._get_abs_expanded_audiobook(prov_audiobook_id=prov_audiobook_id)
         return parse_audiobook(
             abs_audiobook=abs_audiobook,
             lookup_key=self.lookup_key,
@@ -534,7 +518,7 @@ class Audiobookshelf(MusicProvider):
         if media_type == MediaType.PODCAST_EPISODE:
             return await self._get_stream_details_episode(item_id)
         elif media_type == MediaType.AUDIOBOOK:
-            abs_audiobook = await self._get_cached_audiobook(prov_audiobook_id=item_id)
+            abs_audiobook = await self._get_abs_expanded_audiobook(prov_audiobook_id=item_id)
             return await self._get_stream_details_audiobook(abs_audiobook)
         raise MediaNotFoundError("Stream unknown")
 
@@ -565,8 +549,6 @@ class Audiobookshelf(MusicProvider):
                 item_id=abs_audiobook.id_,
                 # for the concatanated stream, we need to use a pcm stream format
                 audio_format=AudioFormat(
-                    # values recommended by Marcel (some are default, but
-                    # nonetheless given here.
                     content_type=ContentType.PCM_S16LE,
                     sample_rate=44100,
                     bit_depth=16,
@@ -608,7 +590,7 @@ class Audiobookshelf(MusicProvider):
         abs_podcast_id, abs_episode_id = podcast_id.split(" ")
         abs_episode = None
 
-        abs_podcast = await self._get_cached_podcast(prov_podcast_id=abs_podcast_id)
+        abs_podcast = await self._get_abs_expanded_podcast(prov_podcast_id=abs_podcast_id)
         for abs_episode in abs_podcast.media.episodes:
             if abs_episode.id_ == abs_episode_id:
                 break
@@ -641,9 +623,7 @@ class Audiobookshelf(MusicProvider):
         """
         Return the (custom) audio stream for the provider item.
 
-        Only used for multi-file audiobooks, copy of Marcel's code
-        in the filesystem provider, only cosmetic (iter audioformat)
-        adjustments.
+        Only used for multi-file audiobooks.
         """
         stream_data: list[tuple[AudioFormat, str, float]] = streamdetails.data
         total_duration = 0.0
@@ -1054,7 +1034,6 @@ class Audiobookshelf(MusicProvider):
                     ),
                     overwrite_existing=True,
                 )
-                await self._cache_set_audiobook(abs_item)
                 lib = self.libraries.audiobooks.get(abs_item.library_id, None)
                 if lib is not None:
                     lib.item_ids.add(abs_item.id_)
@@ -1078,7 +1057,6 @@ class Audiobookshelf(MusicProvider):
                         mass_podcast,
                         overwrite_existing=True,
                     )
-                    await self._cache_set_podcast(abs_item)
                     lib = self.libraries.podcasts.get(abs_item.library_id, None)
                     if lib is not None:
                         lib.item_ids.add(abs_item.id_)
@@ -1091,21 +1069,11 @@ class Audiobookshelf(MusicProvider):
             if item.id_ in lib.item_ids:
                 media_type = MediaType.AUDIOBOOK
                 lib.item_ids.remove(item.id_)
-                await self.mass.cache.delete(
-                    key=item.id_,
-                    base_key=self.cache_base_key,
-                    category=CACHE_CATEGORY_AUDIOBOOKS,
-                )
                 break
         for lib in self.libraries.podcasts.values():
             if item.id_ in lib.item_ids:
                 media_type = MediaType.PODCAST
                 lib.item_ids.remove(item.id_)
-                await self.mass.cache.delete(
-                    key=item.id_,
-                    base_key=self.cache_base_key,
-                    category=CACHE_CATEGORY_PODCASTS,
-                )
                 break
 
         if media_type is not None:
@@ -1184,20 +1152,4 @@ class Audiobookshelf(MusicProvider):
             base_key=self.cache_base_key,
             category=CACHE_CATEGORY_LIBRARIES,
             data=self.libraries.to_dict(),
-        )
-
-    async def _cache_set_podcast(self, abs_podcast: AbsLibraryItemExpandedPodcast) -> None:
-        await self.mass.cache.set(
-            key=abs_podcast.id_,
-            base_key=self.cache_base_key,
-            category=CACHE_CATEGORY_PODCASTS,
-            data=abs_podcast.to_dict(),
-        )
-
-    async def _cache_set_audiobook(self, abs_book: AbsLibraryItemExpandedBook) -> None:
-        await self.mass.cache.set(
-            key=abs_book.id_,
-            base_key=self.cache_base_key,
-            category=CACHE_CATEGORY_AUDIOBOOKS,
-            data=abs_book.to_dict(),
         )
