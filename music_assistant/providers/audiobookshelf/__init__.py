@@ -1104,47 +1104,43 @@ class Audiobookshelf(MusicProvider):
         self.mass_progresses.add_progress(item_id=item_id, episode_id=episode_id)
 
         if episode_id is None:
-            abs_audiobook = await self._get_cached_audiobook(item_id)
-            mass_audiobook = parse_audiobook(
-                abs_audiobook=abs_audiobook,
-                lookup_key=self.lookup_key,
-                domain=self.domain,
-                instance_id=self.instance_id,
-                token=self._client.token,
-                base_url=str(self.config.get_value(CONF_URL)).rstrip("/"),
+            mass_audiobook = await self.mass.music.get_library_item_by_prov_id(
+                media_type=MediaType.AUDIOBOOK,
+                item_id=item_id,
+                provider_instance_id_or_domain=self.instance_id,
             )
-            await self.mass.music.mark_item_played(
-                mass_audiobook,
-                fully_played=progress.is_finished,
-                seconds_played=int(progress.current_time),
-            )
-            self.logger.debug("Updated audiobook progress %s via socket", item_id)
+            if mass_audiobook is not None:
+                await self.mass.music.mark_item_played(
+                    mass_audiobook,
+                    fully_played=progress.is_finished,
+                    seconds_played=int(progress.current_time),
+                )
+                self.logger.debug("Updated audiobook progress %s via socket", item_id)
             # no need to cache, progress is always on demand when playing
             return
 
-        abs_podcast = await self._get_cached_podcast(prov_podcast_id=item_id)
-        mass_episode: PodcastEpisode | None = None
-        for abs_episode in abs_podcast.media.episodes:
-            if abs_episode.id_ == episode_id:
-                mass_episode = parse_podcast_episode(
-                    episode=abs_episode,
-                    prov_podcast_id=item_id,
-                    lookup_key=self.lookup_key,
-                    domain=self.domain,
-                    instance_id=self.instance_id,
-                    token=self._client.token,
-                    base_url=str(self.config.get_value(CONF_URL)).rstrip("/"),
-                    media_progress=progress,
-                )
-            break
-        if mass_episode is None:
-            return
-        await self.mass.music.mark_item_played(
-            mass_episode,
-            fully_played=progress.is_finished,
-            seconds_played=int(progress.current_time),
-        )
-        self.logger.debug("Updated podcast episode progress %s via socket", item_id)
+        # mass_episode: PodcastEpisode | None = None
+        # for abs_episode in abs_podcast.media.episodes:
+        #     if abs_episode.id_ == episode_id:
+        #         mass_episode = parse_podcast_episode(
+        #             episode=abs_episode,
+        #             prov_podcast_id=item_id,
+        #             lookup_key=self.lookup_key,
+        #             domain=self.domain,
+        #             instance_id=self.instance_id,
+        #             token=self._client.token,
+        #             base_url=str(self.config.get_value(CONF_URL)).rstrip("/"),
+        #             media_progress=progress,
+        #         )
+        #     break
+        # if mass_episode is None:
+        #     return
+        # await self.mass.music.mark_item_played(
+        #     mass_episode,
+        #     fully_played=progress.is_finished,
+        #     seconds_played=int(progress.current_time),
+        # )
+        # self.logger.debug("Updated podcast episode progress %s via socket", item_id)
 
     async def _cache_set_helper_libraries(self) -> None:
         await self.mass.cache.set(
