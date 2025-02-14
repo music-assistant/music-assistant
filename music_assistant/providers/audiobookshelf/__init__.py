@@ -23,9 +23,7 @@ from aioaudiobookshelf.schema.library import (
     LibraryItemExpandedBook,
     LibraryItemExpandedPodcast,
 )
-from aioaudiobookshelf.schema.library import (
-    LibraryMediaType as AbsLibraryMediaType,
-)
+from aioaudiobookshelf.schema.library import LibraryMediaType as AbsLibraryMediaType
 from mashumaro.mixins.dict import DataClassDictMixin
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueType, ProviderConfig
 from music_assistant_models.enums import (
