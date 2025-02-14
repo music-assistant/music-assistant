@@ -186,15 +186,13 @@ class BuiltinProvider(MusicProvider):
             # always prefer the stored info, such as the name
             parsed_item.name = stored_item["name"]
             if image_url := stored_item.get("image_url"):
-                parsed_item.metadata.images = UniqueList(
-                    [
-                        MediaItemImage(
-                            type=ImageType.THUMB,
-                            path=image_url,
-                            provider=self.domain,
-                            remotely_accessible=image_url.startswith("http"),
-                        )
-                    ]
+                parsed_item.metadata.add_image(
+                    MediaItemImage(
+                        type=ImageType.THUMB,
+                        path=image_url,
+                        provider=self.domain,
+                        remotely_accessible=image_url.startswith("http"),
+                    )
                 )
         return parsed_item
 
@@ -207,15 +205,13 @@ class BuiltinProvider(MusicProvider):
             # always prefer the stored info, such as the name
             parsed_item.name = stored_item["name"]
             if image_url := stored_item.get("image_url"):
-                parsed_item.metadata.images = UniqueList(
-                    [
-                        MediaItemImage(
-                            type=ImageType.THUMB,
-                            path=image_url,
-                            provider=self.domain,
-                            remotely_accessible=image_url.startswith("http"),
-                        )
-                    ]
+                parsed_item.metadata.add_image(
+                    MediaItemImage(
+                        type=ImageType.THUMB,
+                        path=image_url,
+                        provider=self.domain,
+                        remotely_accessible=image_url.startswith("http"),
+                    )
                 )
         return parsed_item
 
@@ -282,15 +278,13 @@ class BuiltinProvider(MusicProvider):
         )
         playlist.cache_checksum = str(stored_item.get("last_updated"))
         if image_url := stored_item.get("image_url"):
-            playlist.metadata.images = UniqueList(
-                [
-                    MediaItemImage(
-                        type=ImageType.THUMB,
-                        path=image_url,
-                        provider=self.domain,
-                        remotely_accessible=image_url.startswith("http"),
-                    )
-                ]
+            playlist.metadata.add_image(
+                MediaItemImage(
+                    type=ImageType.THUMB,
+                    path=image_url,
+                    provider=self.domain,
+                    remotely_accessible=image_url.startswith("http"),
+                )
             )
         return playlist
 
@@ -335,8 +329,21 @@ class BuiltinProvider(MusicProvider):
         for item in stored_items:
             try:
                 yield await self.get_radio(item["item_id"])
-            except MediaNotFoundError as err:
+            except (MediaNotFoundError, InvalidDataError) as err:
                 self.logger.warning("Radio station %s not found: %s", item, err)
+                yield Radio(
+                    item_id=item["item_id"],
+                    provider=self.lookup_key,
+                    name=item["name"],
+                    provider_mappings={
+                        ProviderMapping(
+                            item_id=item["item_id"],
+                            provider_domain=self.domain,
+                            provider_instance=self.instance_id,
+                            available=False,
+                        )
+                    },
+                )
 
     async def library_add(self, item: MediaItemType) -> bool:
         """Add item to provider's library. Return true on success."""

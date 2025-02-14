@@ -345,13 +345,19 @@ async def check_ffmpeg_version() -> None:
             "FFmpeg binary is missing from system. "
             "Please install ffmpeg on your OS to enable playback."
         )
+    if returncode != 0:
+        raise AudioError(
+            "Error determining FFmpeg version on your system."
+            "Your CPU may be too old to run this version of FFmpeg."
+            f"Additional info: {returncode} {output.decode().strip()}"
+        )
     # parse version number from output
     try:
         version = output.decode().split("ffmpeg version ")[1].split(" ")[0].split("-")[0]
     except IndexError:
         raise AudioError(
             "Error determining FFmpeg version on your system."
-            f"Additional info: {returncode} {output}"
+            f"Additional info: {returncode} {output.decode().strip()}"
         )
     libsoxr_support = "enable-libsoxr" in output.decode()
     # use globals as in-memory cache

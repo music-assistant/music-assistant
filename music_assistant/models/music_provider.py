@@ -7,7 +7,11 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
 from music_assistant_models.enums import CacheCategory, MediaType, ProviderFeature
-from music_assistant_models.errors import MediaNotFoundError, MusicAssistantError
+from music_assistant_models.errors import (
+    MediaNotFoundError,
+    MusicAssistantError,
+    UnsupportedFeaturedException,
+)
 from music_assistant_models.media_items import (
     Album,
     Artist,
@@ -605,112 +609,111 @@ class MusicProvider(Provider):
             raise NotImplementedError
         return []
 
-    async def sync_library(self, media_types: tuple[MediaType, ...]) -> None:
+    async def sync_library(self, media_type: MediaType) -> None:
         """Run library sync for this provider."""
         # this reference implementation can be overridden
         # with a provider specific approach if needed
-        for media_type in media_types:
-            if not self.library_supported(media_type):
-                continue
-            self.logger.debug("Start sync of %s items.", media_type.value)
-            controller = self.mass.music.get_controller(media_type)
-            cur_db_ids = set()
-            async for prov_item in self._get_library_gen(media_type):
-                library_item = await controller.get_library_item_by_prov_mappings(
-                    prov_item.provider_mappings,
-                )
-                try:
-                    if not library_item and not prov_item.available:
-                        # skip unavailable tracks
-                        self.logger.debug(
-                            "Skipping sync of item %s because it is unavailable",
-                            prov_item.uri,
-                        )
-                        continue
-                    if not library_item:
-                        # create full db item
-                        # note that we skip the metadata lookup purely to speed up the sync
-                        # the additional metadata is then lazy retrieved afterwards
-                        if self.is_streaming_provider:
-                            prov_item.favorite = True
-                        library_item = await controller.add_item_to_library(prov_item)
-                    elif getattr(library_item, "cache_checksum", None) != getattr(
-                        prov_item, "cache_checksum", None
-                    ):
-                        # existing dbitem checksum changed (playlists only)
-                        library_item = await controller.update_item_in_library(
-                            library_item.item_id, prov_item
-                        )
-                    if library_item.available != prov_item.available:
-                        # existing item availability changed
-                        library_item = await controller.update_item_in_library(
-                            library_item.item_id, prov_item
-                        )
-                    # check if resume_position_ms or fully_played changed (audiobook only)
-                    resume_pos_prov = getattr(prov_item, "resume_position_ms", None)
-                    fully_played_prov = getattr(prov_item, "fully_played", None)
-                    if (
-                        resume_pos_prov is not None
-                        and fully_played_prov is not None
-                        and (
-                            getattr(library_item, "resume_position_ms", None) != resume_pos_prov
-                            or getattr(library_item, "fully_played", None) != fully_played_prov
-                        )
-                    ):
-                        library_item = await controller.update_item_in_library(
-                            library_item.item_id, prov_item
-                        )
-                    await asyncio.sleep(0)  # yield to eventloop
-                except MusicAssistantError as err:
-                    self.logger.warning(
-                        "Skipping sync of item %s - error details: %s",
-                        prov_item.uri,
-                        str(err),
-                    )
-
-            # process deletions (= no longer in library)
-            cache_category = CacheCategory.LIBRARY_ITEMS
-            cache_base_key = self.instance_id
-
-            prev_library_items: list[int] | None
-            if prev_library_items := await self.mass.cache.get(
-                media_type.value, category=cache_category, base_key=cache_base_key
-            ):
-                for db_id in prev_library_items:
-                    if db_id not in cur_db_ids:
-                        try:
-                            item = await controller.get_library_item(db_id)
-                        except MediaNotFoundError:
-                            # edge case: the item is already removed
-                            continue
-                        remaining_providers = {
-                            x.provider_domain
-                            for x in item.provider_mappings
-                            if x.provider_domain != self.domain
-                        }
-                        if remaining_providers:
-                            continue
-                        # this item is removed from the provider's library
-                        # and we have no other providers attached to it
-                        # it is safe to remove it from the MA library too
-                        # note that we do not remove item's recursively on purpose
-                        try:
-                            await controller.remove_item_from_library(db_id, recursive=False)
-                        except MusicAssistantError as err:
-                            # this is probably because the item still has dependents
-                            self.logger.warning(
-                                "Error removing item %s from library: %s", db_id, str(err)
-                            )
-                            # just un-favorite the item if we can't remove it
-                            await controller.set_favorite(db_id, False)
-                        await asyncio.sleep(0)  # yield to eventloop
-
-            await self.mass.cache.set(
-                media_type.value,
-                list(cur_db_ids),
-                category=cache_category,
-                base_key=cache_base_key,
+        if not self.library_supported(media_type):
+            raise UnsupportedFeaturedException("Library sync not supported for this media type")
+        self.logger.debug("Start sync of %s items.", media_type.value)
+        controller = self.mass.music.get_controller(media_type)
+        cur_db_ids = set()
+        async for prov_item in self._get_library_gen(media_type):
+            library_item = await controller.get_library_item_by_prov_mappings(
+                prov_item.provider_mappings,
             )
+            try:
+                if not library_item and not prov_item.available:
+                    # skip unavailable tracks
+                    self.logger.debug(
+                        "Skipping sync of item %s because it is unavailable",
+                        prov_item.uri,
+                    )
+                    continue
+                if not library_item:
+                    # create full db item
+                    # note that we skip the metadata lookup purely to speed up the sync
+                    # the additional metadata is then lazy retrieved afterwards
+                    if self.is_streaming_provider:
+                        prov_item.favorite = True
+                    library_item = await controller.add_item_to_library(prov_item)
+                elif getattr(library_item, "cache_checksum", None) != getattr(
+                    prov_item, "cache_checksum", None
+                ):
+                    # existing dbitem checksum changed (playlists only)
+                    library_item = await controller.update_item_in_library(
+                        library_item.item_id, prov_item
+                    )
+                if library_item.available != prov_item.available:
+                    # existing item availability changed
+                    library_item = await controller.update_item_in_library(
+                        library_item.item_id, prov_item
+                    )
+                # check if resume_position_ms or fully_played changed (audiobook only)
+                resume_pos_prov = getattr(prov_item, "resume_position_ms", None)
+                fully_played_prov = getattr(prov_item, "fully_played", None)
+                if (
+                    resume_pos_prov is not None
+                    and fully_played_prov is not None
+                    and (
+                        getattr(library_item, "resume_position_ms", None) != resume_pos_prov
+                        or getattr(library_item, "fully_played", None) != fully_played_prov
+                    )
+                ):
+                    library_item = await controller.update_item_in_library(
+                        library_item.item_id, prov_item
+                    )
+                await asyncio.sleep(0)  # yield to eventloop
+            except MusicAssistantError as err:
+                self.logger.warning(
+                    "Skipping sync of item %s - error details: %s",
+                    prov_item.uri,
+                    str(err),
+                )
+
+        # process deletions (= no longer in library)
+        cache_category = CacheCategory.LIBRARY_ITEMS
+        cache_base_key = self.instance_id
+
+        prev_library_items: list[int] | None
+        if prev_library_items := await self.mass.cache.get(
+            media_type.value, category=cache_category, base_key=cache_base_key
+        ):
+            for db_id in prev_library_items:
+                if db_id not in cur_db_ids:
+                    try:
+                        item = await controller.get_library_item(db_id)
+                    except MediaNotFoundError:
+                        # edge case: the item is already removed
+                        continue
+                    remaining_providers = {
+                        x.provider_domain
+                        for x in item.provider_mappings
+                        if x.provider_domain != self.domain
+                    }
+                    if remaining_providers:
+                        continue
+                    # this item is removed from the provider's library
+                    # and we have no other providers attached to it
+                    # it is safe to remove it from the MA library too
+                    # note that we do not remove item's recursively on purpose
+                    try:
+                        await controller.remove_item_from_library(db_id, recursive=False)
+                    except MusicAssistantError as err:
+                        # this is probably because the item still has dependents
+                        self.logger.warning(
+                            "Error removing item %s from library: %s", db_id, str(err)
+                        )
+                        # just un-favorite the item if we can't remove it
+                        await controller.set_favorite(db_id, False)
+                    await asyncio.sleep(0)  # yield to eventloop
+
+        await self.mass.cache.set(
+            media_type.value,
+            list(cur_db_ids),
+            category=cache_category,
+            base_key=cache_base_key,
+        )
 
     # DO NOT OVERRIDE BELOW
 

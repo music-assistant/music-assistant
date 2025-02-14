@@ -8,6 +8,7 @@
         'external_ids': list([
         ]),
         'image': None,
+        'is_playable': True,
         'item_id': '91c3901ac465b9efc439e4be4270c2b6',
         'media_type': 'artist',
         'name': 'pornophonique',
@@ -20,6 +21,7 @@
     'external_ids': list([
     ]),
     'favorite': True,
+    'is_playable': True,
     'item_id': 'ad0f112b6dcf83de5e9cae85d07f0d35',
     'media_type': 'album',
     'metadata': dict({
@@ -86,6 +88,7 @@
         'external_ids': list([
         ]),
         'image': None,
+        'is_playable': True,
         'item_id': '91c3901ac465b9efc439e4be4270c2b6',
         'media_type': 'artist',
         'name': 'pornophonique',
@@ -98,6 +101,7 @@
     'external_ids': list([
     ]),
     'favorite': True,
+    'is_playable': True,
     'item_id': 'ad0f112b6dcf83de5e9cae85d07f0d35',
     'media_type': 'album',
     'metadata': dict({
@@ -166,6 +170,7 @@
     'external_ids': list([
     ]),
     'favorite': True,
+    'is_playable': True,
     'item_id': '37ec820ca7193e17040c98f7da7c4b51',
     'media_type': 'artist',
     'metadata': dict({
@@ -227,6 +232,7 @@
     'external_ids': list([
     ]),
     'favorite': True,
+    'is_playable': True,
     'item_id': '37ec820ca7193e17040c98f7da7c4b51',
     'media_type': 'artist',
     'metadata': dict({
@@ -294,6 +300,7 @@
     'external_ids': list([
     ]),
     'favorite': True,
+    'is_playable': True,
     'item_id': '100000002',
     'media_type': 'artist',
     'metadata': dict({
@@ -355,6 +362,7 @@
     'external_ids': list([
     ]),
     'favorite': True,
+    'is_playable': True,
     'item_id': '100000002',
     'media_type': 'artist',
     'metadata': dict({

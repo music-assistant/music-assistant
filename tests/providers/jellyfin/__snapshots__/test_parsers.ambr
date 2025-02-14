@@ -8,6 +8,7 @@
         'external_ids': list([
         ]),
         'image': None,
+        'is_playable': True,
         'item_id': 'e439648e08ade14e27d5de48fa97c88e',
         'media_type': 'artist',
         'name': 'Papa Roach',
@@ -28,6 +29,7 @@
       ]),
     ]),
     'favorite': False,
+    'is_playable': True,
     'item_id': '70b7288088b42d318f75dbcc41fd0091',
     'media_type': 'album',
     'metadata': dict({
@@ -94,6 +96,7 @@
         'external_ids': list([
         ]),
         'image': None,
+        'is_playable': True,
         'item_id': '555b36f7d310d1b7405557a8775c6878',
         'media_type': 'artist',
         'name': 'Emmy the Great & Tim Wheeler',
@@ -114,6 +117,7 @@
       ]),
     ]),
     'favorite': False,
+    'is_playable': True,
     'item_id': '32ed6a0091733dcff57eae67010f3d4b',
     'media_type': 'album',
     'metadata': dict({
@@ -180,6 +184,7 @@
         'external_ids': list([
         ]),
         'image': None,
+        'is_playable': True,
         'item_id': '[unknown]',
         'media_type': 'artist',
         'name': '[unknown]',
@@ -192,6 +197,7 @@
     'external_ids': list([
     ]),
     'favorite': False,
+    'is_playable': True,
     'item_id': '7c8d0bd55291c7fc0451d17ebef30017',
     'media_type': 'album',
     'metadata': dict({
@@ -252,6 +258,7 @@
       ]),
     ]),
     'favorite': False,
+    'is_playable': True,
     'item_id': 'dd954bbf54398e247d803186d3585b79',
     'media_type': 'artist',
     'metadata': dict({
@@ -327,6 +334,7 @@
       'external_ids': list([
       ]),
       'image': None,
+      'is_playable': True,
       'item_id': 'd42d74e134693184e7adc73106238e89',
       'media_type': 'album',
       'name': 'AM',
@@ -341,6 +349,7 @@
         'external_ids': list([
         ]),
         'image': None,
+        'is_playable': True,
         'item_id': 'cc940aeb8a99149f159fe9794f136071',
         'media_type': 'artist',
         'name': 'Arctic Monkeys',
@@ -355,6 +364,7 @@
     'external_ids': list([
     ]),
     'favorite': False,
+    'is_playable': True,
     'item_id': 'da9c458e425584680765ddc3a89cbc0c',
     'media_type': 'track',
     'metadata': dict({
@@ -419,6 +429,7 @@
       'external_ids': list([
       ]),
       'image': None,
+      'is_playable': True,
       'item_id': '70b7288088b42d318f75dbcc41fd0091',
       'media_type': 'album',
       'name': 'Unknown Album (70b7288088b42d318f75dbcc41fd0091)',
@@ -433,6 +444,7 @@
         'external_ids': list([
         ]),
         'image': None,
+        'is_playable': True,
         'item_id': '[unknown]',
         'media_type': 'artist',
         'name': '[unknown]',
@@ -447,6 +459,7 @@
     'external_ids': list([
     ]),
     'favorite': False,
+    'is_playable': True,
     'item_id': 'b5319fb11cde39fca2023184fcfa9862',
     'media_type': 'track',
     'metadata': dict({
@@ -507,6 +520,7 @@
         'external_ids': list([
         ]),
         'image': None,
+        'is_playable': True,
         'item_id': '94875b0dd58cbf5245a135982133651a',
         'media_type': 'artist',
         'name': 'Dead Like Harry',
@@ -521,6 +535,7 @@
     'external_ids': list([
     ]),
     'favorite': False,
+    'is_playable': True,
     'item_id': '54918f75ee8f6c8b8dc5efd680644f29',
     'media_type': 'track',
     'metadata': dict({
@@ -585,6 +600,7 @@
       'external_ids': list([
       ]),
       'image': None,
+      'is_playable': True,
       'item_id': '32ed6a0091733dcff57eae67010f3d4b',
       'media_type': 'album',
       'name': 'This Is Christmas',
@@ -599,6 +615,7 @@
         'external_ids': list([
         ]),
         'image': None,
+        'is_playable': True,
         'item_id': 'a0c459294295710546c81c20a8d9abfc',
         'media_type': 'artist',
         'name': 'Emmy the Great',
@@ -612,6 +629,7 @@
         'external_ids': list([
         ]),
         'image': None,
+        'is_playable': True,
         'item_id': '1952db245ddef4e41dcd016475379190',
         'media_type': 'artist',
         'name': 'Tim Wheeler',
@@ -630,6 +648,7 @@
       ]),
     ]),
     'favorite': False,
+    'is_playable': True,
     'item_id': 'fb12a77f49616a9fc56a6fab2b94174c',
     'media_type': 'track',
     'metadata': dict({

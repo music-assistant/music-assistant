@@ -325,21 +325,18 @@ class Audiobookshelf(MusicProvider):
         # For streaming providers return True here but for local file based providers return False.
         return False
 
-    async def sync_library(self, media_types: tuple[MediaType, ...]) -> None:
+    async def sync_library(self, media_type: MediaType) -> None:
         """Obtain audiobook library ids and podcast library ids."""
         libraries = await self._client.get_all_libraries()
         for library in libraries:
-            if (
-                library.media_type == AbsLibraryMediaType.BOOK
-                and MediaType.AUDIOBOOK in media_types
-            ):
+            if library.media_type == AbsLibraryMediaType.BOOK and media_type == MediaType.AUDIOBOOK:
                 self.libraries.audiobooks[library.id_] = LibraryHelper(name=library.name)
             elif (
                 library.media_type == AbsLibraryMediaType.PODCAST
-                and MediaType.PODCAST in media_types
+                and media_type == MediaType.PODCAST
             ):
                 self.libraries.podcasts[library.id_] = LibraryHelper(name=library.name)
-        await super().sync_library(media_types=media_types)
+        await super().sync_library(media_type=media_type)
         await self._cache_set_helper_libraries()
 
     async def get_library_podcasts(self) -> AsyncGenerator[Podcast, None]:

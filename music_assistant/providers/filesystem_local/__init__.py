@@ -300,7 +300,7 @@ class LocalFileSystemProvider(MusicProvider):
                 )
         return items
 
-    async def sync_library(self, media_types: tuple[MediaType, ...]) -> None:
+    async def sync_library(self, media_type: MediaType) -> None:
         """Run library sync for this provider."""
         assert self.mass.music.database
         start_time = time.time()
