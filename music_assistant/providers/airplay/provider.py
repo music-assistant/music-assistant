@@ -300,12 +300,30 @@ class AirplayProvider(PlayerProvider):
                 output_format=AIRPLAY_PCM_FORMAT,
                 use_pre_announce=media.custom_data["use_pre_announce"],
             )
+        elif media.media_type == MediaType.PLUGIN_SOURCE:
+            # special case: plugin source stream
+            input_format = AIRPLAY_PCM_FORMAT
+            assert media.custom_data is not None  # for type checking
+            audio_source = self.mass.streams.get_plugin_source_stream(
+                plugin_source_id=media.custom_data["provider"],
+                output_format=AIRPLAY_PCM_FORMAT,
+                player_id=player_id,
+            )
         elif media.queue_id and media.queue_id.startswith("ugp_"):
             # special case: UGP stream
             ugp_provider = cast(PlayerGroupProvider, self.mass.get_provider("player_group"))
             ugp_stream = ugp_provider.ugp_streams[media.queue_id]
             input_format = ugp_stream.base_pcm_format
             audio_source = ugp_stream.subscribe_raw()
+        elif media.media_type == MediaType.RADIO and media.queue_id and media.queue_item_id:
+            # use single item stream request for radio streams
+            input_format = AIRPLAY_PCM_FORMAT
+            queue_item = self.mass.player_queues.get_item(media.queue_id, media.queue_item_id)
+            assert queue_item is not None  # for type checking
+            audio_source = self.mass.streams.get_queue_item_stream(
+                queue_item=queue_item,
+                pcm_format=AIRPLAY_PCM_FORMAT,
+            )
         elif media.queue_id and media.queue_item_id:
             # regular queue (flow) stream request
             input_format = AIRPLAY_FLOW_PCM_FORMAT
@@ -313,7 +331,7 @@ class AirplayProvider(PlayerProvider):
             assert queue
             start_queue_item = self.mass.player_queues.get_item(media.queue_id, media.queue_item_id)
             assert start_queue_item
-            audio_source = self.mass.streams.get_flow_stream(
+            audio_source = self.mass.streams.get_queue_flow_stream(
                 queue=queue,
                 start_queue_item=start_queue_item,
                 pcm_format=input_format,
@@ -610,8 +628,10 @@ class AirplayProvider(PlayerProvider):
                 # device switched to another source (or is powered off)
                 if raop_stream := airplay_player.raop_stream:
                     # ignore this if we just started playing to prevent false positives
-                    assert mass_player.elapsed_time
-                    if mass_player.elapsed_time > 10 and mass_player.state == PlayerState.PLAYING:
+                    elapsed_time = (
+                        10 if mass_player.elapsed_time is None else mass_player.elapsed_time
+                    )
+                    if elapsed_time > 10 and mass_player.state == PlayerState.PLAYING:
                         raop_stream.prevent_playback = True
                         self.mass.create_task(self.monitor_prevent_playback(player_id))
             elif "device-prevent-playback=0" in path:

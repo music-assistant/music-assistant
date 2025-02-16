@@ -421,10 +421,13 @@ class RaopStream:
         title = queue.current_item.name
         artist = ""
         album = ""
-        if queue.current_item.streamdetails and queue.current_item.streamdetails.stream_metadata:
+        if queue.current_item.streamdetails and queue.current_item.streamdetails.stream_title:
             # stream title/metadata from radio/live stream
-            title = queue.current_item.streamdetails.stream_metadata.title or ""
-            artist = queue.current_item.streamdetails.stream_metadata.artist or ""
+            if " - " in queue.current_item.streamdetails.stream_title:
+                artist, title = queue.current_item.streamdetails.stream_title.split(" - ", 1)
+            else:
+                title = queue.current_item.streamdetails.stream_title
+                artist = ""
             # set album to radio station name
             album = queue.current_item.name
         elif media_item := queue.current_item.media_item:

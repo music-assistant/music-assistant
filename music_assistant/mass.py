@@ -66,7 +66,7 @@ rmfile = wrap(os.remove)
 listdir = wrap(os.listdir)
 rename = wrap(os.rename)
 
-EventCallBackType = Callable[[MassEvent], None] | Coroutine[MassEvent, Any, None]
+EventCallBackType = Callable[[MassEvent], None] | Callable[[MassEvent], Coroutine[Any, Any, None]]
 EventSubscriptionType = tuple[
     EventCallBackType, tuple[EventType, ...] | None, tuple[str, ...] | None
 ]
@@ -307,7 +307,7 @@ class MusicAssistant:
                 continue
             if asyncio.iscoroutinefunction(cb_func):
                 if TYPE_CHECKING:
-                    cb_func = cast(Coroutine[Any, Any, None], cb_func)
+                    cb_func = cast(Callable[[MassEvent], Coroutine[Any, Any, None]], cb_func)
                 self.create_task(cb_func, event_obj)
             else:
                 if TYPE_CHECKING:
@@ -341,7 +341,7 @@ class MusicAssistant:
 
     def create_task(
         self,
-        target: Coroutine[Any, Any, _R] | Awaitable[_R],
+        target: Callable[[MassEvent], Coroutine[Any, Any, None]] | Awaitable[_R],
         *args: Any,
         task_id: str | None = None,
         abort_existing: bool = False,

@@ -24,7 +24,7 @@ from music_assistant_models.media_items import (
     ProviderMapping,
     Radio,
 )
-from music_assistant_models.streamdetails import LivestreamMetadata, StreamDetails
+from music_assistant_models.streamdetails import StreamDetails
 from tenacity import RetryError
 
 from music_assistant.helpers.util import select_free_port
@@ -268,10 +268,8 @@ class SiriusXMProvider(MusicProvider):
         if latest_cut_marker:
             latest_cut = latest_cut_marker.cut
             title = latest_cut.title
-            self._current_stream_details.stream_metadata = LivestreamMetadata(
-                title=title,
-                artist=", ".join([a.name for a in latest_cut.artists]),
-            )
+            artist = ", ".join([a.name for a in latest_cut.artists])
+            self._current_stream_details.stream_title = f"{artist} - {title}"
 
     async def _refresh_channels(self) -> bool:
         self._channels = await self._client.channels

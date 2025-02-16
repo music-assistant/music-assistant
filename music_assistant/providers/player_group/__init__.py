@@ -481,9 +481,22 @@ class PlayerGroupProvider(PlayerProvider):
                 output_format=UGP_FORMAT,
                 use_pre_announce=media.custom_data["use_pre_announce"],
             )
+        elif media.media_type == MediaType.PLUGIN_SOURCE:
+            # special case: plugin source stream
+            audio_source = self.mass.streams.get_plugin_source_stream(
+                plugin_source_id=media.custom_data["provider"],
+                output_format=UGP_FORMAT,
+                player_id=player_id,
+            )
+        elif media.media_type == MediaType.RADIO:
+            # use single item stream request for radio streams
+            audio_source = self.mass.streams.get_queue_item_stream(
+                queue_item=self.mass.player_queues.get_item(media.queue_id, media.queue_item_id),
+                pcm_format=UGP_FORMAT,
+            )
         elif media.queue_id and media.queue_item_id:
             # regular queue stream request
-            audio_source = self.mass.streams.get_flow_stream(
+            audio_source = self.mass.streams.get_queue_flow_stream(
                 queue=self.mass.player_queues.get(media.queue_id),
                 start_queue_item=self.mass.player_queues.get_item(
                     media.queue_id, media.queue_item_id
@@ -551,6 +564,7 @@ class PlayerGroupProvider(PlayerProvider):
         """
         if group_player := self.mass.players.get(player_id):
             self._update_attributes(group_player)
+            await self._ungroup_subgroups_if_found(group_player)
 
     async def create_group(
         self, group_type: str, name: str, members: list[str], dynamic: bool = False
@@ -628,6 +642,9 @@ class PlayerGroupProvider(PlayerProvider):
                 f"Player {child_player.display_name} already has another group active"
             )
         group_player.group_childs.append(player_id)
+
+        # Ensure that all player are just in this group and not in any other group
+        await self._ungroup_subgroups_if_found(group_player)
 
         # handle resync/resume if group player was already playing
         if group_player.state == PlayerState.PLAYING and group_type == GROUP_TYPE_UNIVERSAL:
@@ -892,6 +909,36 @@ class PlayerGroupProvider(PlayerProvider):
             can_group_with = {}
         player.can_group_with = can_group_with
         self.mass.players.update(player.player_id)
+
+    async def _ungroup_subgroups_if_found(self, player: Player) -> None:
+        """Verify that no player is part of a separate group."""
+        group_type = self.mass.config.get_raw_player_config_value(
+            player.player_id, CONF_ENTRY_GROUP_TYPE.key, CONF_ENTRY_GROUP_TYPE.default_value
+        )
+        if group_type != GROUP_TYPE_UNIVERSAL:
+            return
+
+        changed = False
+        # Verify that no player is part of a separate group
+        for child_player_id in player.group_childs:
+            child_player = self.mass.players.get(child_player_id)
+            if PlayerFeature.SET_MEMBERS not in child_player.supported_features:
+                continue
+            if child_player.group_childs:
+                # This is a leader in another group
+                player_provider = self.mass.players.get_player_provider(child_player_id)
+                for sync_child_id in child_player.group_childs:
+                    if sync_child_id == child_player_id:
+                        continue
+                    await player_provider.cmd_ungroup(sync_child_id)
+                    changed = True
+            if child_player.synced_to:
+                # This is a member of another group
+                await self.cmd_ungroup_member(child_player.player_id, child_player.synced_to)
+                changed = True
+        if changed and player.state == PlayerState.PLAYING:
+            # Restart playback to ensure all members play the same content
+            await self.mass.player_queues.resume(player.player_id)
 
     async def _serve_ugp_stream(self, request: web.Request) -> web.Response:
         """Serve the UGP (multi-client) flow stream audio to a player."""

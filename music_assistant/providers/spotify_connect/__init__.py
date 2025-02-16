@@ -22,23 +22,17 @@ from music_assistant_models.enums import (
     EventType,
     MediaType,
     ProviderFeature,
-    QueueOption,
     StreamType,
 )
-from music_assistant_models.errors import MediaNotFoundError
-from music_assistant_models.media_items import AudioFormat, PluginSource, ProviderMapping
-from music_assistant_models.streamdetails import LivestreamMetadata, StreamDetails
+from music_assistant_models.media_items import AudioFormat
+from music_assistant_models.player import PlayerMedia
 
 from music_assistant.constants import CONF_ENTRY_WARN_PREVIEW
-from music_assistant.helpers.audio import get_chunksize
-from music_assistant.helpers.ffmpeg import get_ffmpeg_stream
-from music_assistant.helpers.process import AsyncProcess
-from music_assistant.models.music_provider import MusicProvider
+from music_assistant.helpers.process import AsyncProcess, check_output
+from music_assistant.models.plugin import PluginProvider, PluginSource
 from music_assistant.providers.spotify.helpers import get_librespot_binary
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
-
     from aiohttp.web import Request
     from music_assistant_models.config_entries import ConfigValueType, ProviderConfig
     from music_assistant_models.event import MassEvent
@@ -48,7 +42,6 @@ if TYPE_CHECKING:
     from music_assistant.models import ProviderInstanceType
 
 CONF_MASS_PLAYER_ID = "mass_player_id"
-CONF_CUSTOM_NAME = "custom_name"
 CONF_HANDOFF_MODE = "handoff_mode"
 CONNECT_ITEM_ID = "spotify_connect"
 
@@ -89,15 +82,6 @@ async def get_config_entries(
             ),
             required=True,
         ),
-        ConfigEntry(
-            key=CONF_CUSTOM_NAME,
-            type=ConfigEntryType.STRING,
-            label="Name for the Spotify Connect Player",
-            default_value="",
-            description="Select what name should be shown in the Spotify app as speaker name. "
-            "Leave blank to use the Music Assistant player's name",
-            required=False,
-        ),
         # ConfigEntry(
         #     key=CONF_HANDOFF_MODE,
         #     type=ConfigEntryType.BOOLEAN,
@@ -113,14 +97,14 @@ async def get_config_entries(
         #     "When enabling handoff mode, the Spotify Connect plugin will instead "
         #     "forward the Spotify playback request to the Music Assistant Queue, so basically "
         #     "the spotify app can be used to initiate playback, but then MA will take over "
-        #     "the playback and manage the queue, the normal operating mode of MA. \n\n"
+        #     "the playback and manage the queue, which is the normal operating mode of MA. \n\n"
         #     "This mode however means that the Spotify app will not report the actual playback ",
         #     required=False,
         # ),
     )
 
 
-class SpotifyConnectProvider(MusicProvider):
+class SpotifyConnectProvider(PluginProvider):
     """Implementation of a Spotify Connect Plugin."""
 
     def __init__(
@@ -135,9 +119,31 @@ class SpotifyConnectProvider(MusicProvider):
         self._runner_task: asyncio.Task | None = None  # type: ignore[type-arg]
         self._librespot_proc: AsyncProcess | None = None
         self._librespot_started = asyncio.Event()
-        self._player_connected: bool = False
-        self._current_streamdetails: StreamDetails | None = None
-        self._audio_buffer: asyncio.Queue[bytes] = asyncio.Queue(60)
+        self.named_pipe = f"/tmp/{self.instance_id}"  # noqa: S108
+        self._source_details = PluginSource(
+            id=self.lookup_key,
+            name=self.manifest.name,
+            # we set passive to true because we
+            # dont allow this source to be selected directly
+            passive=True,
+            # TODO: implement controlling spotify from MA itself
+            can_play_pause=False,
+            can_seek=False,
+            can_next_previous=False,
+            audio_format=AudioFormat(
+                content_type=ContentType.PCM_S16LE,
+                codec_type=ContentType.PCM_S16LE,
+                sample_rate=44100,
+                bit_depth=16,
+                channels=2,
+            ),
+            metadata=PlayerMedia(
+                "Spotify Connect",
+            ),
+            stream_type=StreamType.NAMED_PIPE,
+            path=self.named_pipe,
+        )
+        self._audio_buffer: asyncio.Queue[bytes] = asyncio.Queue(10)
         self._on_unload_callbacks: list[Callable[..., None]] = [
             self.mass.subscribe(
                 self._on_mass_player_event,
@@ -155,15 +161,6 @@ class SpotifyConnectProvider(MusicProvider):
         """Return the features supported by this Provider."""
         return {ProviderFeature.AUDIO_SOURCE}
 
-    @property
-    def name(self) -> str:
-        """Return (custom) friendly name for this provider instance."""
-        if custom_name := cast(str, self.config.get_value(CONF_CUSTOM_NAME)):
-            return f"{self.manifest.name}: {custom_name}"
-        if player := self.mass.players.get(self.mass_player_id):
-            return f"{self.manifest.name}: {player.display_name}"
-        return super().name
-
     async def handle_async_init(self) -> None:
         """Handle async initialization of the provider."""
         self._librespot_bin = await get_librespot_binary()
@@ -178,75 +175,24 @@ class SpotifyConnectProvider(MusicProvider):
         for callback in self._on_unload_callbacks:
             callback()
 
-    async def get_sources(self) -> list[PluginSource]:
-        """Get all audio sources provided by this provider."""
-        # we only have passive/hidden sources so no need to supply this listing
-        return []
-
-    async def get_source(self, prov_source_id: str) -> PluginSource:
-        """Get AudioSource details by id."""
-        if prov_source_id != CONNECT_ITEM_ID:
-            raise MediaNotFoundError(f"Invalid source id: {prov_source_id}")
-        return PluginSource(
-            item_id=CONNECT_ITEM_ID,
-            provider=self.instance_id,
-            name="Spotify Connect",
-            provider_mappings={
-                ProviderMapping(
-                    item_id=CONNECT_ITEM_ID,
-                    provider_domain=self.domain,
-                    provider_instance=self.instance_id,
-                    audio_format=AudioFormat(content_type=ContentType.OGG),
-                )
-            },
-        )
-
-    async def get_stream_details(self, item_id: str, media_type: MediaType) -> StreamDetails:
-        """Return the streamdetails to stream an audiosource provided by this plugin."""
-        self._current_streamdetails = streamdetails = StreamDetails(
-            item_id=CONNECT_ITEM_ID,
-            provider=self.instance_id,
-            audio_format=AudioFormat(
-                content_type=ContentType.OGG,
-            ),
-            media_type=MediaType.PLUGIN_SOURCE,
-            allow_seek=False,
-            can_seek=False,
-            stream_type=StreamType.CUSTOM,
-        )
-        return streamdetails
-
-    async def get_audio_stream(
-        self, streamdetails: StreamDetails, seek_position: int = 0
-    ) -> AsyncGenerator[bytes, None]:
-        """Return the audio stream for the provider item."""
-        if not self._librespot_proc or self._librespot_proc.closed:
-            raise MediaNotFoundError(f"Librespot not ready for: {streamdetails.item_id}")
-        self._player_connected = True
-        try:
-            while True:
-                yield await self._audio_buffer.get()
-        finally:
-            self._player_connected = False
-            await asyncio.sleep(2)
-            if not self._player_connected:
-                # handle situation where the stream is disconnected from the MA player
-                # easiest way to unmark this librespot instance as active player is to close it
-                await self._librespot_proc.close(True)
+    def get_source(self) -> PluginSource:
+        """Get (audio)source details for this plugin."""
+        return self._source_details
 
     async def _librespot_runner(self) -> None:
         """Run the spotify connect daemon in a background task."""
         assert self._librespot_bin
-        if not (player := self.mass.players.get(self.mass_player_id)):
-            raise MediaNotFoundError(f"Player not found: {self.mass_player_id}")
-        name = cast(str, self.config.get_value(CONF_CUSTOM_NAME) or player.display_name)
-        self.logger.info("Starting Spotify Connect background daemon %s", name)
+        self.logger.info("Starting Spotify Connect background daemon")
         os.environ["MASS_CALLBACK"] = f"{self.mass.streams.base_url}/{self.instance_id}"
+        await check_output("rm", "-f", self.named_pipe)
+        await asyncio.sleep(0.5)
+        await check_output("mkfifo", self.named_pipe)
+        await asyncio.sleep(0.5)
         try:
             args: list[str] = [
                 self._librespot_bin,
                 "--name",
-                name,
+                self.name,
                 "--cache",
                 self.cache_dir,
                 "--disable-audio-cache",
@@ -254,9 +200,10 @@ class SpotifyConnectProvider(MusicProvider):
                 "320",
                 "--backend",
                 "pipe",
+                "--device",
+                self.named_pipe,
                 "--dither",
                 "none",
-                "--passthrough",
                 # disable volume control
                 "--mixer",
                 "softvol",
@@ -264,51 +211,37 @@ class SpotifyConnectProvider(MusicProvider):
                 "fixed",
                 "--initial-volume",
                 "100",
+                "--enable-volume-normalisation",
                 # forward events to the events script
                 "--onevent",
                 str(EVENTS_SCRIPT),
                 "--emit-sink-events",
             ]
             self._librespot_proc = librespot = AsyncProcess(
-                args, stdout=True, stderr=True, name=f"librespot[{name}]"
+                args, stdout=False, stderr=True, name=f"librespot[{self.name}]"
             )
             await librespot.start()
 
             # keep reading logging from stderr until exit
-            async def log_reader() -> None:
-                async for line in librespot.iter_stderr():
-                    if (
-                        not self._librespot_started.is_set()
-                        and "Using StdoutSink (pipe) with format: S16" in line
-                    ):
-                        self._librespot_started.set()
-                    if "error sending packet Os" in line:
-                        continue
-                    if "dropping truncated packet" in line:
-                        continue
-                    if "couldn't parse packet from " in line:
-                        continue
-                    self.logger.debug(line)
-
-            async def audio_reader() -> None:
-                chunksize = get_chunksize(AudioFormat(content_type=ContentType.OGG))
-                async for chunk in get_ffmpeg_stream(
-                    librespot.iter_chunked(chunksize),
-                    input_format=AudioFormat(content_type=ContentType.OGG),
-                    output_format=AudioFormat(content_type=ContentType.OGG),
-                    extra_input_args=["-readrate", "1.0"],
+            async for line in librespot.iter_stderr():
+                if (
+                    not self._librespot_started.is_set()
+                    and "Using StdoutSink (pipe) with format: S16" in line
                 ):
-                    if librespot.closed or self._stop_called:
-                        break
-                    if not self._player_connected:
-                        continue
-                    await self._audio_buffer.put(chunk)
+                    self._librespot_started.set()
+                if "error sending packet Os" in line:
+                    continue
+                if "dropping truncated packet" in line:
+                    continue
+                if "couldn't parse packet from " in line:
+                    continue
+                self.logger.debug(line)
 
-            await asyncio.gather(log_reader(), audio_reader())
         except asyncio.CancelledError:
             await librespot.close(True)
         finally:
-            self.logger.info("Spotify Connect background daemon stopped for %s", name)
+            self.logger.info("Spotify Connect background daemon stopped for %s", self.name)
+            await check_output("rm", "-f", self.named_pipe)
             # auto restart if not stopped manually
             if not self._stop_called and self._librespot_started.is_set():
                 self._setup_player_daemon()
@@ -338,34 +271,36 @@ class SpotifyConnectProvider(MusicProvider):
         # handle session connected event
         # this player has become the active spotify connect player
         # we need to start the playback
-        if not self._player_connected and json_data.get("event") in (
-            "session_connected",
-            "play_request_id_changed",
+        self.logger.error("%s - %s", self.name, json_data.get("event"))
+        if not self._source_details.in_use_by and json_data.get("event") in (
+            # "session_connected",
+            # "loading",
+            "sink",
         ):
-            # initiate playback by selecting the pluginsource mediaitem on the player
-            pluginsource_item = await self.get_source(CONNECT_ITEM_ID)
+            # initiate playback by selecting this source on the default player
             self.mass.create_task(
-                self.mass.player_queues.play_media(
-                    queue_id=self.mass_player_id,
-                    media=pluginsource_item,
-                    option=QueueOption.REPLACE,
-                )
+                self.mass.players.select_source(self.mass_player_id, self.lookup_key)
             )
 
-        if self._current_streamdetails:
-            # parse metadata fields
-            if "common_metadata_fields" in json_data:
-                title = json_data["common_metadata_fields"].get("name", "Unknown")
-                if artists := json_data.get("track_metadata_fields", {}).get("artists"):
-                    artist = artists[0]
-                else:
-                    artist = "Unknown"
-                if images := json_data["common_metadata_fields"].get("covers"):
-                    image_url = images[0]
-                else:
-                    image_url = None
-                self._current_streamdetails.stream_metadata = LivestreamMetadata(
-                    title=title, artist=artist, image_url=image_url
-                )
+        # parse metadata fields
+        if "common_metadata_fields" in json_data:
+            uri = json_data["common_metadata_fields"].get("uri", "Unknown")
+            title = json_data["common_metadata_fields"].get("name", "Unknown")
+            if artists := json_data.get("track_metadata_fields", {}).get("artists"):
+                artist = artists[0]
+            else:
+                artist = "Unknown"
+            album = json_data["common_metadata_fields"].get("album", "Unknown")
+            if images := json_data["common_metadata_fields"].get("covers"):
+                image_url = images[0]
+            else:
+                image_url = None
+            if self._source_details.metadata is None:
+                self._source_details.metadata = PlayerMedia(uri, media_type=MediaType.TRACK)
+            self._source_details.metadata.uri = uri
+            self._source_details.metadata.title = title
+            self._source_details.metadata.artist = artist
+            self._source_details.metadata.album = album
+            self._source_details.metadata.image_url = image_url
 
         return Response()

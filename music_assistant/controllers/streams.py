@@ -65,13 +65,13 @@ from music_assistant.helpers.ffmpeg import check_ffmpeg_version, get_ffmpeg_stre
 from music_assistant.helpers.util import get_ip, get_ips, select_free_port, try_parse_bool
 from music_assistant.helpers.webserver import Webserver
 from music_assistant.models.core_controller import CoreController
+from music_assistant.models.plugin import PluginProvider
 
 if TYPE_CHECKING:
     from music_assistant_models.config_entries import CoreConfig
     from music_assistant_models.player import Player
     from music_assistant_models.player_queue import PlayerQueue
     from music_assistant_models.queue_item import QueueItem
-    from music_assistant_models.streamdetails import StreamDetails
 
 
 isfile = wrap(os.path.isfile)
@@ -233,6 +233,11 @@ class StreamsController(CoreController):
                     "/announcement/{player_id}.{fmt}",
                     self.serve_announcement_stream,
                 ),
+                (
+                    "*",
+                    "/pluginsource/{plugin_source}/{player_id}.{fmt}",
+                    self.serve_plugin_source_stream,
+                ),
             ],
         )
 
@@ -295,6 +300,8 @@ class StreamsController(CoreController):
         headers = {
             **DEFAULT_STREAM_HEADERS,
             "icy-name": queue_item.name,
+            "Accept-Ranges": "none",
+            "Content-Type": f"audio/{output_format.output_format_str}",
         }
         resp = web.StreamResponse(
             status=200,
@@ -339,8 +346,8 @@ class StreamsController(CoreController):
         self.mass.player_queues.track_loaded_in_buffer(queue_id, queue_item_id)
 
         async for chunk in get_ffmpeg_stream(
-            audio_input=self.get_media_stream(
-                streamdetails=queue_item.streamdetails,
+            audio_input=self.get_queue_item_stream(
+                queue_item=queue_item,
                 pcm_format=pcm_format,
             ),
             input_format=pcm_format,
@@ -434,7 +441,7 @@ class StreamsController(CoreController):
         self.logger.debug("Start serving Queue flow audio stream for %s", queue.display_name)
 
         async for chunk in get_ffmpeg_stream(
-            audio_input=self.get_flow_stream(
+            audio_input=self.get_queue_flow_stream(
                 queue=queue,
                 start_queue_item=start_queue_item,
                 pcm_format=flow_pcm_format,
@@ -562,6 +569,73 @@ class StreamsController(CoreController):
 
         return resp
 
+    async def serve_plugin_source_stream(self, request: web.Request) -> web.Response:
+        """Stream PluginSource audio to a player."""
+        self._log_request(request)
+        plugin_source_id = request.match_info["plugin_source"]
+        provider: PluginProvider | None
+        if not (provider := self.mass.get_provider(plugin_source_id)):
+            raise web.HTTPNotFound(reason=f"Unknown PluginSource: {plugin_source_id}")
+        # work out output format/details
+        player_id = request.match_info["player_id"]
+        player = self.mass.players.get(player_id)
+        if not player:
+            raise web.HTTPNotFound(reason=f"Unknown Player: {player_id}")
+        plugin_source = provider.get_source()
+        output_format = await self.get_output_format(
+            output_format_str=request.match_info["fmt"],
+            player=player,
+            default_sample_rate=plugin_source.audio_format.sample_rate,
+            default_bit_depth=plugin_source.audio_format.bit_depth,
+        )
+        headers = {
+            **DEFAULT_STREAM_HEADERS,
+            "icy-name": plugin_source.name,
+            "Accept-Ranges": "none",
+            "Content-Type": f"audio/{output_format.output_format_str}",
+        }
+        resp = web.StreamResponse(
+            status=200,
+            reason="OK",
+            headers=headers,
+        )
+        resp.content_type = f"audio/{output_format.output_format_str}"
+        http_profile: str = await self.mass.config.get_player_config_value(
+            player_id, CONF_HTTP_PROFILE
+        )
+        if http_profile == "forced_content_length":
+            # guess content length based on duration
+            resp.content_length = get_chunksize(output_format, 12 * 3600)
+        elif http_profile == "chunked":
+            resp.enable_chunked_encoding()
+
+        await resp.prepare(request)
+
+        # return early if this is not a GET request
+        if request.method != "GET":
+            return resp
+
+        # all checks passed, start streaming!
+        self.logger.debug(
+            "Start serving audio stream for PluginSource %s (%s) to %s",
+            plugin_source.name,
+            plugin_source.id,
+            player.display_name,
+        )
+        async for chunk in self.get_plugin_source_stream(
+            plugin_source_id=plugin_source_id,
+            output_format=output_format,
+            player_id=player_id,
+            player_filter_params=get_player_filter_params(
+                self.mass, player_id, plugin_source.audio_format, output_format
+            ),
+        ):
+            try:
+                await resp.write(chunk)
+            except (BrokenPipeError, ConnectionResetError, ConnectionError):
+                break
+        return resp
+
     def get_command_url(self, player_or_queue_id: str, command: str) -> str:
         """Get the url for the special command stream."""
         return f"{self.base_url}/command/{player_or_queue_id}/{command}.mp3"
@@ -582,8 +656,7 @@ class StreamsController(CoreController):
 
     def get_plugin_source_url(
         self,
-        provider: str,
-        source_id: str,
+        plugin_source: str,
         player_id: str,
         output_codec: ContentType = ContentType.FLAC,
     ) -> str:
@@ -592,9 +665,9 @@ class StreamsController(CoreController):
         # handle raw pcm without exact format specifiers
         if output_codec.is_pcm() and ";" not in fmt:
             fmt += f";codec=pcm;rate={44100};bitrate={16};channels={2}"
-        return f"{self._server.base_url}/pluginsource/{provider}/{source_id}/{player_id}.{fmt}"
+        return f"{self._server.base_url}/pluginsource/{plugin_source}/{player_id}.{fmt}"
 
-    async def get_flow_stream(
+    async def get_queue_flow_stream(
         self,
         queue: PlayerQueue,
         start_queue_item: QueueItem,
@@ -664,8 +737,8 @@ class StreamsController(CoreController):
             bytes_written = 0
             buffer = b""
             # handle incoming audio chunks
-            async for chunk in self.get_media_stream(
-                queue_track.streamdetails,
+            async for chunk in self.get_queue_item_stream(
+                queue_track,
                 pcm_format=pcm_format,
             ):
                 # buffer size needs to be big enough to include the crossfade part
@@ -785,13 +858,50 @@ class StreamsController(CoreController):
         ):
             yield chunk
 
-    async def get_media_stream(
+    async def get_plugin_source_stream(
         self,
-        streamdetails: StreamDetails,
+        plugin_source_id: str,
+        output_format: AudioFormat,
+        player_id: str,
+        player_filter_params: list[str] | None = None,
+    ) -> AsyncGenerator[bytes, None]:
+        """Get the special plugin source stream."""
+        provider: PluginProvider = self.mass.get_provider(plugin_source_id)
+        plugin_source = provider.get_source()
+        if plugin_source.in_use_by and plugin_source.in_use_by != player_id:
+            raise RuntimeError(
+                f"PluginSource plugin_source.name is already in use by {plugin_source.in_use_by}"
+            )
+
+        audio_input = (
+            provider.get_audio_stream(player_id)
+            if plugin_source.stream_type == StreamType.CUSTOM
+            else plugin_source.path
+        )
+        chunk_size = int(get_chunksize(output_format, 1) / 10)
+        try:
+            plugin_source.in_use_by = player_id
+            async for chunk in get_ffmpeg_stream(
+                audio_input=audio_input,
+                input_format=plugin_source.audio_format,
+                output_format=output_format,
+                chunk_size=chunk_size,
+                filter_params=player_filter_params,
+                extra_input_args=["-re"],
+            ):
+                yield chunk
+        finally:
+            plugin_source.in_use_by = None
+
+    async def get_queue_item_stream(
+        self,
+        queue_item: QueueItem,
         pcm_format: AudioFormat,
-    ) -> AsyncGenerator[tuple[bool, bytes], None]:
-        """Get the audio stream for the given streamdetails as raw pcm chunks."""
+    ) -> AsyncGenerator[bytes, None]:
+        """Get the audio stream for a single queue item as raw PCM audio."""
         # collect all arguments for ffmpeg
+        streamdetails = queue_item.streamdetails
+        assert streamdetails
         filter_params = []
         extra_input_args = streamdetails.extra_input_args or []
         # handle volume normalization

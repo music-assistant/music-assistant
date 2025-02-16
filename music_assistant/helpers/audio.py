@@ -398,6 +398,7 @@ async def get_media_stream(
         collect_log_history=True,
         loglevel="debug" if LOGGER.isEnabledFor(VERBOSE_LOG_LEVEL) else "info",
     )
+
     try:
         await ffmpeg_proc.start()
         logger.debug(
@@ -543,7 +544,6 @@ async def get_media_stream(
                 VolumeNormalizationMode.FIXED_GAIN,
             )
             and (finished or (seconds_streamed >= 30))
-            and streamdetails.media_type != MediaType.PLUGIN_SOURCE
         ):
             # dynamic mode not allowed and no measurement known, we need to analyze the audio
             # add background task to start analyzing the audio

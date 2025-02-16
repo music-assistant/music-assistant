@@ -482,7 +482,7 @@ class SnapCastProvider(PlayerProvider):
         self.mass.players.update(player_id, skip_forward=True)
         self.mass.players.update(mass_player.synced_to, skip_forward=True)
 
-    async def play_media(self, player_id: str, media: PlayerMedia) -> None:
+    async def play_media(self, player_id: str, media: PlayerMedia) -> None:  # noqa: PLR0915
         """Handle PLAY MEDIA on given player."""
         player = self.mass.players.get(player_id)
         if player.synced_to:
@@ -506,16 +506,39 @@ class SnapCastProvider(PlayerProvider):
                 output_format=DEFAULT_SNAPCAST_FORMAT,
                 use_pre_announce=media.custom_data["use_pre_announce"],
             )
+        elif media.media_type == MediaType.PLUGIN_SOURCE:
+            # special case: plugin source stream
+            # consume the stream directly, so we can skip one step in between
+            # provider: PluginProvider = self.mass.get_provider(media.custom_data["provider"])
+            # plugin_source = provider.get_source()
+            # audio_source = (
+            #     provider.get_audio_stream(player_id)
+            #     if plugin_source.stream_type == StreamType.CUSTOM
+            #     else plugin_source.path
+            # )
+            input_format = DEFAULT_SNAPCAST_FORMAT
+            audio_source = self.mass.streams.get_plugin_source_stream(
+                plugin_source_id=media.custom_data["provider"],
+                output_format=DEFAULT_SNAPCAST_FORMAT,
+                player_id=player_id,
+            )
         elif media.queue_id.startswith("ugp_"):
             # special case: UGP stream
             ugp_provider: PlayerGroupProvider = self.mass.get_provider("player_group")
             ugp_stream = ugp_provider.ugp_streams[media.queue_id]
             input_format = ugp_stream.base_pcm_format
             audio_source = ugp_stream.subscribe_raw()
+        elif media.media_type == MediaType.RADIO:
+            # use single item stream request for radio streams
+            input_format = DEFAULT_SNAPCAST_FORMAT
+            audio_source = self.mass.streams.get_queue_item_stream(
+                queue_item=self.mass.player_queues.get_item(media.queue_id, media.queue_item_id),
+                pcm_format=DEFAULT_SNAPCAST_FORMAT,
+            )
         elif media.queue_id and media.queue_item_id:
             # regular queue (flow) stream request
             input_format = DEFAULT_SNAPCAST_PCM_FORMAT
-            audio_source = self.mass.streams.get_flow_stream(
+            audio_source = self.mass.streams.get_queue_flow_stream(
                 queue=self.mass.player_queues.get(media.queue_id),
                 start_queue_item=self.mass.player_queues.get_item(
                     media.queue_id, media.queue_item_id

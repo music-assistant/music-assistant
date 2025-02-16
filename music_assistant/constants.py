@@ -495,6 +495,7 @@ def create_sample_rates_config_entry(
     safe_max_sample_rate: int = 48000,
     safe_max_bit_depth: int = 16,
     hidden: bool = False,
+    supported_sample_rates: list[int] | None = None,
 ) -> ConfigEntry:
     """Create sample rates config entry based on player specific helpers."""
     assert CONF_ENTRY_SAMPLE_RATES.options
@@ -506,6 +507,8 @@ def create_sample_rates_config_entry(
         if not isinstance(option.value, tuple):
             continue
         sample_rate, bit_depth = option.value
+        if supported_sample_rates and sample_rate not in supported_sample_rates:
+            continue
         if sample_rate <= max_sample_rate and bit_depth <= max_bit_depth:
             options.append(option)
         if sample_rate <= safe_max_sample_rate and bit_depth <= safe_max_bit_depth:

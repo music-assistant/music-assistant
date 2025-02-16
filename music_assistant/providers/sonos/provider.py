@@ -340,10 +340,8 @@ class SonosPlayerProvider(PlayerProvider):
 
         # play a single uri/url
         # note that this most probably will only work for (long running) radio streams
-        if self.mass.config.get_raw_player_config_value(
-            player_id, CONF_ENTRY_ENFORCE_MP3.key, CONF_ENTRY_ENFORCE_MP3.default_value
-        ):
-            media.uri = media.uri.replace(".flac", ".mp3")
+        # enforce mp3 here because Sonos really does not support FLAC streams without duration
+        media.uri = media.uri.replace(".flac", ".mp3")
         await sonos_player.client.player.group.play_stream_url(
             media.uri, {"name": media.title, "type": "track"}
         )

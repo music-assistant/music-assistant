@@ -50,7 +50,7 @@ PLAYER_SOURCE_MAP = {
     ),
     SOURCE_AIRPLAY: PlayerSource(
         id=SOURCE_AIRPLAY,
-        name="Spotify",
+        name="Airplay",
         passive=True,
         can_play_pause=True,
         can_next_previous=True,
@@ -66,7 +66,7 @@ PLAYER_SOURCE_MAP = {
     ),
     SOURCE_RADIO: PlayerSource(
         id=SOURCE_RADIO,
-        name="Spotify",
+        name="Radio",
         passive=True,
         can_play_pause=True,
         can_next_previous=True,

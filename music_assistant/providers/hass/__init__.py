@@ -213,6 +213,8 @@ async def _get_player_control_config_entries(hass: HomeAssistantClient) -> tuple
     all_mute_entities: list[ConfigValueOption] = []
     all_volume_entities: list[ConfigValueOption] = []
     # collect all entities that are usable for player controls
+    if not hass.connected:
+        return ()
     for state in await hass.get_states():
         if "friendly_name" not in state["attributes"]:
             # filter out invalid/unavailable players

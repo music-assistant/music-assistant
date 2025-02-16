@@ -785,8 +785,8 @@ class PlayerQueuesController(CoreController):
         queue.index_in_buffer = index
         queue.flow_mode_stream_log = []
         queue.flow_mode = await self.mass.config.get_player_config_value(queue_id, CONF_FLOW_MODE)
-        # no point in enabled flow mode for radio or plugin sources
-        if queue_item.media_type in (MediaType.RADIO, MediaType.PLUGIN_SOURCE):
+        # no point in enabling flow mode for radio sources
+        if queue_item.media_type == MediaType.RADIO:
             queue.flow_mode = False
         queue.current_item = queue_item
 

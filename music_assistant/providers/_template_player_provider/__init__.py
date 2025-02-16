@@ -109,7 +109,7 @@ class MyDemoPlayerprovider(PlayerProvider):
         """Return the features supported by this Provider."""
         # MANDATORY
         # you should return a set of provider-level features
-        # here that your player provider supports or an empty tuple if none.
+        # here that your player provider supports or an empty set if none.
         # for example 'ProviderFeature.SYNC_PLAYERS' if you can sync players.
         return {ProviderFeature.SYNC_PLAYERS}
 
