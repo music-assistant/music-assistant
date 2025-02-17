@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Sequence
-from dataclasses import dataclass, field
-from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import aioaudiobookshelf as aioabs
@@ -23,7 +21,6 @@ from aioaudiobookshelf.schema.library import (
     LibraryItemExpandedPodcast,
 )
 from aioaudiobookshelf.schema.library import LibraryMediaType as AbsLibraryMediaType
-from mashumaro.mixins.dict import DataClassDictMixin
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueType, ProviderConfig
 from music_assistant_models.enums import (
     ConfigEntryType,
@@ -44,6 +41,21 @@ from music_assistant.providers.audiobookshelf.parsers import (
     parse_podcast_episode,
 )
 
+from .constants import (
+    ABSBROWSEITEMSTOPATH,
+    CACHE_CATEGORY_LIBRARIES,
+    CACHE_KEY_LIBRARIES,
+    CONF_HIDE_EMPTY_PODCASTS,
+    CONF_PASSWORD,
+    CONF_URL,
+    CONF_USERNAME,
+    CONF_VERIFY_SSL,
+    AbsBrowseItemsBook,
+    AbsBrowseItemsPodcast,
+    AbsBrowsePaths,
+)
+from .helpers import LibrariesHelper, LibraryHelper
+
 if TYPE_CHECKING:
     from aioaudiobookshelf.schema.events_socket import LibraryItemRemoved
     from aioaudiobookshelf.schema.media_progress import MediaProgress
@@ -52,77 +64,6 @@ if TYPE_CHECKING:
 
     from music_assistant.mass import MusicAssistant
     from music_assistant.models import ProviderInstanceType
-
-CONF_URL = "url"
-CONF_USERNAME = "username"
-CONF_PASSWORD = "password"
-CONF_VERIFY_SSL = "verify_ssl"
-# optionally hide podcasts with no episodes
-CONF_HIDE_EMPTY_PODCASTS = "hide_empty_podcasts"
-
-# We do _not_ store the full library, just the helper classes LibrariesHelper/ LibraryHelper,
-# see below, i.e. only uuids and the lib's name.
-# Caching these can be removed, but I'd then have to iterate the full item list
-# within the browse function if the user wishes to see all audiobooks/ podcasts
-# of a library.
-CACHE_CATEGORY_LIBRARIES = 0
-CACHE_KEY_LIBRARIES = "libraries"
-
-
-class AbsBrowsePaths(StrEnum):
-    """Path prefixes for browse view."""
-
-    LIBRARIES_BOOK = "lb"
-    LIBRARIES_PODCAST = "lp"
-    AUTHORS = "a"
-    NARRATORS = "n"
-    SERIES = "s"
-    COLLECTIONS = "c"
-    AUDIOBOOKS = "b"
-
-
-class AbsBrowseItemsBook(StrEnum):
-    """Folder names in browse view for books."""
-
-    AUTHORS = "Authors"
-    NARRATORS = "Narrators"
-    SERIES = "Series"
-    COLLECTIONS = "Collections"
-    AUDIOBOOKS = "Audiobooks"
-
-
-class AbsBrowseItemsPodcast(StrEnum):
-    """Folder names in browse view for podcasts."""
-
-    PODCASTS = "Podcasts"
-
-
-@dataclass(kw_only=True)
-class LibraryHelper(DataClassDictMixin):
-    """Lib name + media items' uuids."""
-
-    name: str
-    item_ids: set[str] = field(default_factory=set)
-
-
-@dataclass(kw_only=True)
-class LibrariesHelper(DataClassDictMixin):
-    """Helper class to store ABSLibrary name, id and the uuids of its media items.
-
-    Dictionary is lib_id:AbsLibraryWithItemIDs.
-    """
-
-    audiobooks: dict[str, LibraryHelper] = field(default_factory=dict)
-    podcasts: dict[str, LibraryHelper] = field(default_factory=dict)
-
-
-ABSBROWSEITEMSTOPATH: dict[str, str] = {
-    AbsBrowseItemsBook.AUTHORS: AbsBrowsePaths.AUTHORS,
-    AbsBrowseItemsBook.NARRATORS: AbsBrowsePaths.NARRATORS,
-    AbsBrowseItemsBook.SERIES: AbsBrowsePaths.SERIES,
-    AbsBrowseItemsBook.COLLECTIONS: AbsBrowsePaths.COLLECTIONS,
-    AbsBrowseItemsBook.AUDIOBOOKS: AbsBrowsePaths.AUDIOBOOKS,
-}
 
 
 async def setup(
