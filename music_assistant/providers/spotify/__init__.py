@@ -288,8 +288,8 @@ class SpotifyProvider(MusicProvider):
         return base
 
     @property
-    def name(self) -> str:
-        """Return (custom) friendly name for this provider instance."""
+    def default_name(self) -> str:
+        """Return default name for this provider instance."""
         if self._sp_user:
             postfix = self._sp_user["display_name"]
             return f"{self.manifest.name}: {postfix}"

@@ -296,7 +296,10 @@ def get_ffmpeg_args(
             str(output_format.channels),
         ]
         if not output_format.content_type.is_pcm() and output_format.content_type.is_lossless():
-            output_args += ["-sample_fmt", f"s{output_format.bit_depth}"]
+            if output_format.bit_depth == 24:
+                output_args += ["-sample_fmt", "s32"]
+            elif output_format.bit_depth == 16:
+                output_args += ["-sample_fmt", "s16"]
         if output_format.output_format_str == "flac":
             # use level 0 compression for fastest encoding
             output_args += ["-compression_level", "0"]

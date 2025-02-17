@@ -45,7 +45,7 @@ def split_items(org_str: str, allow_unsafe_splitters: bool = False) -> tuple[str
     if org_str is None:
         return ()
     if isinstance(org_str, list):
-        return (x.strip() for x in org_str)
+        return tuple(x.strip() for x in org_str)
     org_str = org_str.strip()
     if TAG_SPLITTER in org_str:
         return clean_tuple(org_str.split(TAG_SPLITTER))
@@ -392,10 +392,14 @@ class AudioTags:
             x for x in raw["streams"] if x.get("codec_name", "") in ("mjpeg", "png")
         )
         # convert all tag-keys (gathered from all streams) to lowercase without spaces
+        # prefer format as that contains the actual ID3 tags
+        # append any tags found in streams (but don't overwrite format tags)
         tags = {}
-        for stream in raw["streams"] + [raw["format"]]:
+        for stream in [raw["format"]] + raw["streams"]:
             for key, value in stream.get("tags", {}).items():
                 alt_key = key.lower().replace(" ", "").replace("_", "").replace("-", "")
+                if alt_key in tags:
+                    continue
                 tags[alt_key] = value
 
         return AudioTags(
@@ -423,7 +427,7 @@ async def async_parse_tags(input_file: str, file_size: int | None = None) -> Aud
     return await asyncio.to_thread(parse_tags, input_file, file_size)
 
 
-def parse_tags(input_file: str, file_size: int | None = None) -> AudioTags:
+def parse_tags(input_file: str, file_size: int | None = None) -> AudioTags:  # noqa: PLR0915
     """
     Parse tags from a media file (or URL). NOT Async friendly.
 
@@ -465,7 +469,6 @@ def parse_tags(input_file: str, file_size: int | None = None) -> AudioTags:
         if (
             not input_file.startswith("http")
             and input_file.endswith(".mp3")
-            and "musicbrainzrecordingid" not in tags.tags
             and os.path.isfile(input_file)
         ):
             # eyed3 is able to extract the musicbrainzrecordingid from the unique file id
@@ -478,6 +481,36 @@ def parse_tags(input_file: str, file_size: int | None = None) -> AudioTags:
                     if uf_id.owner_id == b"http://musicbrainz.org" and uf_id.uniq_id:
                         tags.tags["musicbrainzrecordingid"] = uf_id.uniq_id.decode()
                         break
+                if audiofile.tag.version == (2, 4, 0):
+                    # ffmpeg messes up reading ID3v2.4 tags from mp3 files, especially
+                    # on multi-item tags. We need to read the TXXX frames manually
+                    if frameset := audiofile.tag.frame_set.get(b"TXXX"):
+                        for raw_tag in frameset:
+                            if not hasattr(raw_tag, "description"):
+                                continue
+                            if raw_tag.description.upper() == "ARTISTS":
+                                tags.tags["artists"] = raw_tag.text.split("\x00\ufeff")
+                            if raw_tag.description == "MusicBrainz Artist Id":
+                                tags.tags["musicbrainzartistid"] = raw_tag.text.split("\x00\ufeff")
+                            if raw_tag.description == "MusicBrainz Album Artist Id":
+                                tags.tags["musicbrainzalbumartistid"] = raw_tag.text.split(
+                                    "\x00\ufeff"
+                                )
+                    if frameset := audiofile.tag.frame_set.get(b"TSOP"):
+                        for raw_tag in frameset:
+                            if not hasattr(raw_tag, "text"):
+                                continue
+                            tags.tags["artistsort"] = raw_tag.text.split("\x00\ufeff")
+                    if frameset := audiofile.tag.frame_set.get(b"TSO2"):
+                        for raw_tag in frameset:
+                            if not hasattr(raw_tag, "text"):
+                                continue
+                            tags.tags["albumartistsort"] = raw_tag.text.split("\x00\ufeff")
+                    if frameset := audiofile.tag.frame_set.get(b"TCON"):
+                        for raw_tag in frameset:
+                            if not hasattr(raw_tag, "text"):
+                                continue
+                            tags.tags["genre"] = raw_tag.text.split("\x00\ufeff")
             del audiofile
         return tags
     except subprocess.CalledProcessError as err:

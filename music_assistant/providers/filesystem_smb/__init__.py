@@ -145,10 +145,8 @@ class SMBFileSystemProvider(LocalFileSystemProvider):
     """
 
     @property
-    def name(self) -> str:
-        """Return (custom) friendly name for this provider instance."""
-        if self.config.name:
-            return self.config.name
+    def default_name(self) -> str:
+        """Return default name for this provider instance."""
         share = str(self.config.get_value(CONF_SHARE))
         subfolder = str(self.config.get_value(CONF_SUBFOLDER))
         if subfolder:
@@ -156,7 +154,7 @@ class SMBFileSystemProvider(LocalFileSystemProvider):
         elif share:
             postfix = share
         else:
-            return super().name
+            return super().default_name
         return f"{self.manifest.name} {postfix}"
 
     async def handle_async_init(self) -> None:

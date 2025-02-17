@@ -187,10 +187,8 @@ class LocalFileSystemProvider(MusicProvider):
         return False
 
     @property
-    def name(self) -> str:
-        """Return (custom) friendly name for this provider instance."""
-        if self.config.name:
-            return self.config.name
+    def default_name(self) -> str:
+        """Return default name for this provider instance."""
         postfix = self.base_path.split(os.sep)[-1]
         return f"{self.manifest.name} {postfix}"
 
@@ -538,9 +536,12 @@ class LocalFileSystemProvider(MusicProvider):
             prov_artist_id, self.instance_id
         )
         if not db_artist:
-            # this should not be possible, but just in case
-            msg = f"Artist not found: {prov_artist_id}"
-            raise MediaNotFoundError(msg)
+            # this may happen if the artist is not in the db yet
+            # e.g. when browsing the filesystem
+            if await self.exists(prov_artist_id):
+                return await self._parse_artist(prov_artist_id, artist_path=prov_artist_id)
+            return await self._parse_artist(prov_artist_id)
+
         # prov_artist_id is either an actual (relative) path or a name (as fallback)
         safe_artist_name = create_safe_string(prov_artist_id, lowercase=False, replace_space=False)
         if await self.exists(prov_artist_id):
