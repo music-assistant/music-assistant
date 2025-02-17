@@ -22,6 +22,7 @@ from music_assistant_models.enums import (
     PlayerState,
     PlayerType,
     ProviderFeature,
+    StreamType,
 )
 from music_assistant_models.errors import SetupFailedError
 from music_assistant_models.media_items import AudioFormat
@@ -42,6 +43,7 @@ from music_assistant.helpers.audio import FFMpeg, get_ffmpeg_stream, get_player_
 from music_assistant.helpers.process import AsyncProcess, check_output
 from music_assistant.helpers.util import get_ip_pton
 from music_assistant.models.player_provider import PlayerProvider
+from music_assistant.models.plugin import PluginProvider
 
 if TYPE_CHECKING:
     from music_assistant_models.config_entries import ProviderConfig
@@ -433,11 +435,16 @@ class SnapCastProvider(PlayerProvider):
         if stream_task := self._stream_tasks.pop(player_id, None):
             if not stream_task.done():
                 stream_task.cancel()
-        player.state = PlayerState.IDLE
-        self._set_childs_state(player_id)
-        self.mass.players.update(player_id)
+                with suppress(asyncio.CancelledError):
+                    await stream_task
         # assign default/empty stream to the player
         await self._get_snapgroup(player_id).set_stream("default")
+        await asyncio.sleep(0.5)
+        player.state = PlayerState.IDLE
+        player.current_media = None
+        player.active_source = None
+        self._set_childs_state(player_id)
+        self.mass.players.update(player_id)
 
     async def cmd_volume_mute(self, player_id: str, muted: bool) -> None:
         """Send MUTE command to given player."""
@@ -509,18 +516,15 @@ class SnapCastProvider(PlayerProvider):
         elif media.media_type == MediaType.PLUGIN_SOURCE:
             # special case: plugin source stream
             # consume the stream directly, so we can skip one step in between
-            # provider: PluginProvider = self.mass.get_provider(media.custom_data["provider"])
-            # plugin_source = provider.get_source()
-            # audio_source = (
-            #     provider.get_audio_stream(player_id)
-            #     if plugin_source.stream_type == StreamType.CUSTOM
-            #     else plugin_source.path
-            # )
-            input_format = DEFAULT_SNAPCAST_FORMAT
-            audio_source = self.mass.streams.get_plugin_source_stream(
-                plugin_source_id=media.custom_data["provider"],
-                output_format=DEFAULT_SNAPCAST_FORMAT,
-                player_id=player_id,
+            assert media.custom_data is not None  # for type checking
+            provider = cast(PluginProvider, self.mass.get_provider(media.custom_data["provider"]))
+            plugin_source = provider.get_source()
+            assert plugin_source.audio_format is not None  # for type checking
+            input_format = plugin_source.audio_format
+            audio_source = (
+                provider.get_audio_stream(player_id)
+                if plugin_source.stream_type == StreamType.CUSTOM
+                else plugin_source.path
             )
         elif media.queue_id.startswith("ugp_"):
             # special case: UGP stream
@@ -568,6 +572,7 @@ class SnapCastProvider(PlayerProvider):
                         self.mass, player_id, input_format, DEFAULT_SNAPCAST_FORMAT
                     ),
                     audio_output=stream_path,
+                    extra_input_args=["-re"],
                 ) as ffmpeg_proc:
                     player.state = PlayerState.PLAYING
                     player.current_media = media

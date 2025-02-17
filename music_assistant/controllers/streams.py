@@ -866,32 +866,29 @@ class StreamsController(CoreController):
         player_filter_params: list[str] | None = None,
     ) -> AsyncGenerator[bytes, None]:
         """Get the special plugin source stream."""
-        provider: PluginProvider = self.mass.get_provider(plugin_source_id)
-        plugin_source = provider.get_source()
-        if plugin_source.in_use_by and plugin_source.in_use_by != player_id:
+        player = self.mass.players.get(player_id)
+        plugin_prov: PluginProvider = self.mass.get_provider(plugin_source_id)
+        plugin_source = plugin_prov.get_source()
+        if plugin_prov.in_use_by and plugin_prov.in_use_by != player_id:
             raise RuntimeError(
-                f"PluginSource plugin_source.name is already in use by {plugin_source.in_use_by}"
+                f"PluginSource plugin_source.name is already in use by {plugin_prov.in_use_by}"
             )
-
         audio_input = (
-            provider.get_audio_stream(player_id)
+            plugin_prov.get_audio_stream(player_id)
             if plugin_source.stream_type == StreamType.CUSTOM
             else plugin_source.path
         )
         chunk_size = int(get_chunksize(output_format, 1) / 10)
-        try:
-            plugin_source.in_use_by = player_id
-            async for chunk in get_ffmpeg_stream(
-                audio_input=audio_input,
-                input_format=plugin_source.audio_format,
-                output_format=output_format,
-                chunk_size=chunk_size,
-                filter_params=player_filter_params,
-                extra_input_args=["-re"],
-            ):
-                yield chunk
-        finally:
-            plugin_source.in_use_by = None
+        player.active_source = plugin_source_id
+        async for chunk in get_ffmpeg_stream(
+            audio_input=audio_input,
+            input_format=plugin_source.audio_format,
+            output_format=output_format,
+            chunk_size=chunk_size,
+            filter_params=player_filter_params,
+            extra_input_args=["-re"],
+        ):
+            yield chunk
 
     async def get_queue_item_stream(
         self,

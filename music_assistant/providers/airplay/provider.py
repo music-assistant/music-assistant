@@ -17,6 +17,7 @@ from music_assistant_models.enums import (
     PlayerState,
     PlayerType,
     ProviderFeature,
+    StreamType,
 )
 from music_assistant_models.media_items import AudioFormat
 from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
@@ -38,6 +39,7 @@ from music_assistant.helpers.datetime import utc
 from music_assistant.helpers.ffmpeg import get_ffmpeg_stream
 from music_assistant.helpers.util import TaskManager, get_ip_pton, lock, select_free_port
 from music_assistant.models.player_provider import PlayerProvider
+from music_assistant.models.plugin import PluginProvider
 from music_assistant.providers.airplay.raop import RaopStreamSession
 from music_assistant.providers.player_group import PlayerGroupProvider
 
@@ -302,12 +304,16 @@ class AirplayProvider(PlayerProvider):
             )
         elif media.media_type == MediaType.PLUGIN_SOURCE:
             # special case: plugin source stream
-            input_format = AIRPLAY_PCM_FORMAT
+            # consume the stream directly, so we can skip one step in between
             assert media.custom_data is not None  # for type checking
-            audio_source = self.mass.streams.get_plugin_source_stream(
-                plugin_source_id=media.custom_data["provider"],
-                output_format=AIRPLAY_PCM_FORMAT,
-                player_id=player_id,
+            provider = cast(PluginProvider, self.mass.get_provider(media.custom_data["provider"]))
+            plugin_source = provider.get_source()
+            assert plugin_source.audio_format is not None  # for type checking
+            input_format = plugin_source.audio_format
+            audio_source = (
+                provider.get_audio_stream(player_id)  # type: ignore[assignment]
+                if plugin_source.stream_type == StreamType.CUSTOM
+                else cast(str, plugin_source.path)
             )
         elif media.queue_id and media.queue_id.startswith("ugp_"):
             # special case: UGP stream

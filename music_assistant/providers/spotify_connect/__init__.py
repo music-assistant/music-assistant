@@ -12,6 +12,7 @@ import asyncio
 import os
 import pathlib
 from collections.abc import Callable
+from contextlib import suppress
 from typing import TYPE_CHECKING, cast
 
 from aiohttp.web import Response
@@ -172,6 +173,8 @@ class SpotifyConnectProvider(PluginProvider):
         self._stop_called = True
         if self._runner_task and not self._runner_task.done():
             self._runner_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._runner_task
         for callback in self._on_unload_callbacks:
             callback()
 
@@ -185,9 +188,9 @@ class SpotifyConnectProvider(PluginProvider):
         self.logger.info("Starting Spotify Connect background daemon")
         os.environ["MASS_CALLBACK"] = f"{self.mass.streams.base_url}/{self.instance_id}"
         await check_output("rm", "-f", self.named_pipe)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.1)
         await check_output("mkfifo", self.named_pipe)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.1)
         try:
             args: list[str] = [
                 self._librespot_bin,
@@ -236,10 +239,8 @@ class SpotifyConnectProvider(PluginProvider):
                 if "couldn't parse packet from " in line:
                     continue
                 self.logger.debug(line)
-
-        except asyncio.CancelledError:
-            await librespot.close(True)
         finally:
+            await librespot.close(True)
             self.logger.info("Spotify Connect background daemon stopped for %s", self.name)
             await check_output("rm", "-f", self.named_pipe)
             # auto restart if not stopped manually
@@ -271,11 +272,9 @@ class SpotifyConnectProvider(PluginProvider):
         # handle session connected event
         # this player has become the active spotify connect player
         # we need to start the playback
-        self.logger.error("%s - %s", self.name, json_data.get("event"))
-        if not self._source_details.in_use_by and json_data.get("event") in (
-            # "session_connected",
-            # "loading",
-            "sink",
+        if json_data.get("event") in ("sink",) and (
+            not self.in_use_by
+            or ((player := self.mass.players.get(self.in_use_by)) and player.state == "idle")
         ):
             # initiate playback by selecting this source on the default player
             self.mass.create_task(

@@ -720,10 +720,12 @@ class PlayerController(CoreController):
         if player.synced_to or player.active_group:
             raise PlayerCommandFailed(f"Player {player.display_name} is currently grouped")
         # check if player is already playing and source is different
-        # in that case we to stop the player first
-        if source != player.active_source and player.state != PlayerState.IDLE:
+        # in that case we need to stop the player first
+        prev_source = player.active_source
+        if prev_source and source != prev_source and player.state != PlayerState.IDLE:
             await self.cmd_stop(player_id)
             await asyncio.sleep(0.5)  # small delay to allow stop to process
+            player.active_source = None
         # check if source is a pluginsource
         # in that case the source id is the lookup_key of the plugin provider
         if plugin_prov := self.mass.get_provider(source):
@@ -733,8 +735,6 @@ class PlayerController(CoreController):
         # this can be used to restore the queue after a source switch
         if mass_queue := self.mass.player_queues.get(source):
             player.active_source = mass_queue.queue_id
-            if mass_queue.items:
-                await self.mass.player_queues.play(mass_queue.queue_id)
             return
         # basic check if player supports source selection
         if PlayerFeature.SELECT_SOURCE not in player.supported_features:
@@ -1401,9 +1401,9 @@ class PlayerController(CoreController):
             return self._get_active_source(group_player)
         # if player has plugin source active return that
         for plugin_source in self._get_plugin_sources():
-            if (
-                plugin_source.in_use_by == player.player_id
-            ) or player.active_source == plugin_source.id:
+            if player.active_source == plugin_source.id or (
+                player.current_media and plugin_source.id == player.current_media.queue_id
+            ):
                 # copy/set current media if available
                 if plugin_source.metadata:
                     player.set_current_media(
@@ -1630,11 +1630,10 @@ class PlayerController(CoreController):
     ) -> None:
         """Handle playback/select of given plugin source on player."""
         plugin_source = plugin_prov.get_source()
-        if plugin_source.in_use_by and plugin_source.in_use_by != player.player_id:
+        if plugin_prov.in_use_by and plugin_prov.in_use_by != player.player_id:
             raise PlayerCommandFailed(
                 f"Source {plugin_source.name} is already in use by another player"
             )
-        plugin_source.in_use_by = player.player_id
         player.active_source = plugin_source.id
         stream_url = self.mass.streams.get_plugin_source_url(plugin_source.id, player.player_id)
         await self.play_media(
@@ -1643,6 +1642,7 @@ class PlayerController(CoreController):
                 uri=stream_url,
                 media_type=MediaType.PLUGIN_SOURCE,
                 title=plugin_source.name,
+                queue_id=plugin_source.id,
                 custom_data={
                     "provider": plugin_source.id,
                     "audio_format": plugin_source.audio_format,
@@ -1661,9 +1661,12 @@ class PlayerController(CoreController):
     def _set_player_sources(self, player: Player) -> None:
         """Set all available player sources."""
         player_source_ids = [x.id for x in player.source_list]
-        for plugin_source in self._get_plugin_sources():
-            if plugin_source.id in player_source_ids:
+        for plugin_prov in self.mass.get_providers(ProviderType.PLUGIN):
+            if ProviderFeature.AUDIO_SOURCE not in plugin_prov.supported_features:
                 continue
-            if plugin_source.passive and plugin_source.in_use_by != player.player_id:
+            if plugin_prov.in_use_by and plugin_prov.in_use_by != player.player_id:
+                continue
+            plugin_source = plugin_prov.get_source()
+            if plugin_source.id in player_source_ids:
                 continue
             player.source_list.append(plugin_source)

@@ -110,7 +110,7 @@ def parse_m3u(m3u_data: str) -> list[PlaylistItem]:
 
 def parse_pls(pls_data: str) -> list[PlaylistItem]:
     """Parse (only) filenames/urls from pls playlist file."""
-    pls_parser = configparser.ConfigParser()
+    pls_parser = configparser.ConfigParser(strict=False)
     try:
         pls_parser.read_string(pls_data, "playlist")
     except configparser.Error as err:
@@ -169,10 +169,10 @@ async def fetch_playlist(
     ) or "#EXT-X-STREAM-INF:" in playlist_data:
         raise IsHLSPlaylist
 
-    if urlparse(url).path.endswith((".m3u", ".m3u8")):
-        playlist = parse_m3u(playlist_data)
-    else:
+    if urlparse(url).path.endswith("pls") or "[playlist]" in playlist_data:
         playlist = parse_pls(playlist_data)
+    else:
+        playlist = parse_m3u(playlist_data)
 
     if not playlist:
         msg = f"Empty playlist {url}"

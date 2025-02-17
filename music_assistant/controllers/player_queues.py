@@ -1024,6 +1024,7 @@ class PlayerQueuesController(CoreController):
             )
         )
         if queue_item.media_item and queue_item.media_item.media_type == MediaType.TRACK:
+            album = queue_item.media_item.album
             # prefer the full library media item so we have all metadata and provider(quality) info
             # always request the full library item as there might be other qualities available
             if library_item := await self.mass.music.get_library_item_by_prov_id(
@@ -1038,6 +1039,17 @@ class PlayerQueuesController(CoreController):
                 # Youtube Music has poor thumbs by default, so we always fetch the full item
                 # this also catches the case where they have an unavailable item in a listing
                 queue_item.media_item = await self.mass.music.get_item_by_uri(queue_item.uri)
+            # ensure we got the full (original) album set
+            if album and (
+                library_album := await self.mass.music.get_library_item_by_prov_id(
+                    album.media_type,
+                    album.item_id,
+                    album.provider,
+                )
+            ):
+                queue_item.media_item.album = library_album
+            else:
+                queue_item.media_item.album = album
         # Fetch the streamdetails, which could raise in case of an unplayable item.
         # For example, YT Music returns Radio Items that are not playable.
         queue_item.streamdetails = await get_stream_details(
