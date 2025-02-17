@@ -206,24 +206,18 @@ class Audiobookshelf(MusicProvider):
             {
                 "media_type": MediaType.AUDIOBOOK.value,
                 "provider": self.lookup_key,
-                "fully_played": 0,
             },
         )
-        self.mass_playlog_inprogress_books = {
-            x["item_id"] for x in audiobook_playlog if x["seconds_played"] > 0
-        }
+        self.mass_playlog_inprogress_books = {x["item_id"] for x in audiobook_playlog}
 
         episode_playlog = await self.mass.music.database.get_rows(
             DB_TABLE_PLAYLOG,
             {
                 "media_type": MediaType.PODCAST_EPISODE.value,
                 "provider": self.lookup_key,
-                "fully_played": 0,
             },
         )
-        self.mass_playlog_inprogress_episodes = {
-            x["item_id"] for x in episode_playlog if x["seconds_played"] > 0
-        }
+        self.mass_playlog_inprogress_episodes = {x["item_id"] for x in episode_playlog}
 
         # update playlog information if just started
         user = await self._client.get_my_user()
@@ -1087,6 +1081,15 @@ class Audiobookshelf(MusicProvider):
         self.last_call_user_callback = time.time()
         await self._set_playlog_from_user(user)
 
+    def _get_all_known_item_ids(self) -> set[str]:
+        known_ids = set()
+        for lib in self.libraries.podcasts.values():
+            known_ids.update(lib.item_ids)
+        for lib in self.libraries.audiobooks.values():
+            known_ids.update(lib.item_ids)
+
+        return known_ids
+
     async def _set_playlog_from_user(self, user: User) -> None:
         """Update on user callback.
 
@@ -1099,7 +1102,10 @@ class Audiobookshelf(MusicProvider):
         await self._set_playlog_from_user_sync(user.media_progress)
 
     async def _set_playlog_from_user_sync(self, progresses: list[MediaProgress]) -> None:
+        # for debugging
         __updated_items = 0
+
+        known_ids = self._get_all_known_item_ids()
 
         for progress in progresses:
             # Guard. Also makes sure, that we don't write to db again if no state change happened.
@@ -1107,6 +1113,8 @@ class Audiobookshelf(MusicProvider):
                 continue
             if not progress.current_time >= 30:
                 # same as mass default, only > 30s
+                continue
+            if progress.library_item_id not in known_ids:
                 continue
             if progress.episode_id is None:
                 mass_audiobook = await self.mass.music.get_library_item_by_prov_id(
@@ -1144,9 +1152,13 @@ class Audiobookshelf(MusicProvider):
         # for debugging
         __removed_items = 0
 
+        known_ids = self._get_all_known_item_ids()
+
         abs_known_books = set()
         abs_known_episodes = set()
         for progress in progresses:
+            if progress.library_item_id not in known_ids:
+                continue
             if progress.episode_id is None:
                 abs_known_books.add(progress.library_item_id)
             else:
