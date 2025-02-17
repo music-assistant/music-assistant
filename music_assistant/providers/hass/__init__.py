@@ -388,14 +388,18 @@ class HomeAssistantProvider(PluginProvider):
                 control.power_off = partial(self._handle_player_control_power_off, entity_id)
             if entity_id in volume_controls:
                 control.supports_volume = True
-                if entity_platform == "media_player":
+                if not hass_state:
+                    control.volume_level = 0
+                elif entity_platform == "media_player":
                     control.volume_level = hass_state["attributes"].get("volume_level", 0) * 100
                 else:
                     control.volume_level = try_parse_int(hass_state["state"]) or 0
                 control.volume_set = partial(self._handle_player_control_volume_set, entity_id)
             if entity_id in mute_controls:
                 control.supports_mute = True
-                if entity_platform == "media_player":
+                if not hass_state:
+                    control.volume_muted = False
+                elif entity_platform == "media_player":
                     control.volume_muted = hass_state["attributes"].get("volume_muted")
                 elif hass_state:
                     control.volume_muted = hass_state["state"] not in OFF_STATES

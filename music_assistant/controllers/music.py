@@ -475,7 +475,7 @@ class MusicController(CoreController):
         )
         db_rows = await self.mass.music.database.get_rows_from_query(query, limit=limit)
         result: list[ItemMapping] = []
-        available_providers = ("library", *get_global_cache_value("unique_providers", []))
+        available_providers = ("library", *get_global_cache_value("available_providers", []))
         for db_row in db_rows:
             result.append(
                 ItemMapping.from_dict(

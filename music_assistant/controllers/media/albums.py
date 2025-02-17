@@ -215,6 +215,10 @@ class AlbumsController(MediaControllerBase[Album, Album]):
         if not library_album:
             return await self._get_provider_album_tracks(item_id, provider_instance_id_or_domain)
         db_items = await self.get_library_album_tracks(library_album.item_id)
+        # override embedded images with album thumb
+        if library_album.image:
+            for db_item in db_items:
+                db_item.metadata.images = library_album.metadata.images
         result: UniqueList[Track] = UniqueList(db_items)
         if in_library_only:
             # return in-library items only

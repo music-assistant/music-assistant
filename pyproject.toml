@@ -15,14 +15,14 @@ dependencies = [
   "aiohttp==3.11.11",
   "aiofiles==24.1.0",
   "aiorun==2025.1.1",
-  "aiosqlite==0.20.0",
+  "aiosqlite==0.21.0",
   "certifi==2025.1.31",
   "colorlog==6.9.0",
   "cryptography==44.0.1",
   "eyeD3==0.9.7",
   "faust-cchardet>=2.1.18",
   "ifaddr==0.2.0",
-  "mashumaro==3.14",
+  "mashumaro==3.15",
   "memory-tempfile==2.2.3",
   "music-assistant-frontend==2.11.4",
   "music-assistant-models==1.1.26",
@@ -45,7 +45,7 @@ version = "0.0.0"
 test = [
   "codespell==2.3.0",
   "isort==6.0.0",
-  "mypy==1.13.0",
+  "mypy==1.15.0",
   "pre-commit==4.1.0",
   "pre-commit-hooks==5.0.0",
   "pytest==8.3.4",
@@ -53,7 +53,7 @@ test = [
   "pytest-cov==5.0.0",
   "syrupy==4.8.1",
   "tomli==2.2.1",
-  "ruff==0.9.4",
+  "ruff==0.9.6",
 ]
 
 [project.scripts]

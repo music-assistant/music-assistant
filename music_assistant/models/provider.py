@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, final
 
 from music_assistant.constants import CONF_LOG_LEVEL, MASS_LOGGER_NAME
 
@@ -72,25 +72,34 @@ class Provider:
         """Handle MDNS service state callback."""
 
     @property
+    @final
     def type(self) -> ProviderType:
         """Return type of this provider."""
         return self.manifest.type
 
     @property
+    @final
     def domain(self) -> str:
         """Return domain for this provider."""
         return self.manifest.domain
 
     @property
+    @final
     def instance_id(self) -> str:
         """Return instance_id for this provider(instance)."""
         return self.config.instance_id
 
     @property
+    @final
     def name(self) -> str:
         """Return (custom) friendly name for this provider instance."""
         if self.config.name:
             return self.config.name
+        return self.default_name
+
+    @property
+    def default_name(self) -> str:
+        """Return a default name for this provider instance."""
         inst_count = len([x for x in self.mass.music.providers if x.domain == self.domain])
         if inst_count > 1:
             postfix = self.instance_id[-8:]
@@ -102,7 +111,7 @@ class Provider:
         return {
             "type": self.type.value,
             "domain": self.domain,
-            "name": self.config.name or self.name,
+            "name": self.name,
             "instance_id": self.instance_id,
             "lookup_key": self.lookup_key,
             "supported_features": [x.value for x in self.supported_features],
