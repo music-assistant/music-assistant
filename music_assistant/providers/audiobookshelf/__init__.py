@@ -1033,50 +1033,27 @@ class Audiobookshelf(MusicProvider):
             - the item is finished
         But it is _not_called, if a progress is reset/ discarded.
         """
-        item_id = progress.library_item_id
-        episode_id = progress.episode_id
-
         # guard
         if not self.progress_guard.guard_ok_abs(abs_progress=progress):
             return
-        self.progress_guard.add_progress(item_id=item_id, episode_id=episode_id)
 
-        if episode_id is None:
-            mass_audiobook = await self.mass.music.get_library_item_by_prov_id(
-                media_type=MediaType.AUDIOBOOK,
-                item_id=item_id,
-                provider_instance_id_or_domain=self.instance_id,
-            )
-            if mass_audiobook is not None:
-                await self.mass.music.mark_item_played(
-                    mass_audiobook,
-                    fully_played=progress.is_finished,
-                    seconds_played=int(progress.current_time),
-                )
-                self.logger.debug("Updated audiobook progress %s via socket", item_id)
-            # no need to cache, progress is always on demand when playing
+        known_ids = self._get_all_known_item_ids()
+        if progress.library_item_id not in known_ids:
             return
 
-        try:
-            mass_episode = await self.get_podcast_episode(
-                f"{item_id} {episode_id}", add_progress=False
-            )
-        except MediaNotFoundError:
+        self.logger.debug(f"Updated progress of item {progress.library_item_id} via socket.")
+
+        if progress.episode_id is None:
+            await self._update_playlog_book(progress)
             return
-        self.progress_guard.add_progress(item_id, episode_id)
-        await self.mass.music.mark_item_played(
-            mass_episode,
-            fully_played=progress.is_finished,
-            seconds_played=int(progress.current_time),
-        )
-        self.logger.debug("Updated podcast progress %s via socket", item_id)
+        await self._update_playlog_episode(progress)
 
     async def _socket_abs_user_updated(self, user: User) -> None:
         """Only fired if externally changed, and on progress removal.
 
         Called multiple times on external change. Make sure, we update only once.
         """
-        if not time.time() - self.last_call_user_callback >= 5:
+        if not time.time() - self.last_call_user_callback >= 2:
             return
         self.last_call_user_callback = time.time()
         await self._set_playlog_from_user(user)
@@ -1116,36 +1093,11 @@ class Audiobookshelf(MusicProvider):
                 continue
             if progress.library_item_id not in known_ids:
                 continue
+            __updated_items += 1
             if progress.episode_id is None:
-                mass_audiobook = await self.mass.music.get_library_item_by_prov_id(
-                    media_type=MediaType.AUDIOBOOK,
-                    item_id=progress.library_item_id,
-                    provider_instance_id_or_domain=self.instance_id,
-                )
-                if mass_audiobook is None:
-                    continue
-                self.mass_playlog_inprogress_books.add(progress.library_item_id)
-                self.progress_guard.add_progress(progress.library_item_id)
-                await self.mass.music.mark_item_played(
-                    mass_audiobook,
-                    fully_played=progress.is_finished,
-                    seconds_played=int(progress.current_time),
-                )
-                __updated_items += 1
+                await self._update_playlog_book(progress)
             else:
-                _episode_id = f"{progress.library_item_id} {progress.episode_id}"
-                try:
-                    mass_episode = await self.get_podcast_episode(_episode_id, add_progress=False)
-                except MediaNotFoundError:
-                    continue
-                self.mass_playlog_inprogress_episodes.add(_episode_id)
-                self.progress_guard.add_progress(progress.library_item_id, progress.episode_id)
-                await self.mass.music.mark_item_played(
-                    mass_episode,
-                    fully_played=progress.is_finished,
-                    seconds_played=int(progress.current_time),
-                )
-                __updated_items += 1
+                await self._update_playlog_episode(progress)
         self.logger.debug(f"Updated {__updated_items} from playlog via user callback socket")
 
     async def _set_playlog_from_user_removed(self, progresses: list[MediaProgress]) -> None:
@@ -1194,6 +1146,37 @@ class Audiobookshelf(MusicProvider):
             __removed_items += 1
 
         self.logger.debug(f"Removed {__removed_items} from playlog via user callback socket")
+
+    async def _update_playlog_book(self, progress: MediaProgress) -> None:
+        self.progress_guard.add_progress(progress.library_item_id)
+        mass_audiobook = await self.mass.music.get_library_item_by_prov_id(
+            media_type=MediaType.AUDIOBOOK,
+            item_id=progress.library_item_id,
+            provider_instance_id_or_domain=self.instance_id,
+        )
+        if mass_audiobook is None:
+            return
+        self.mass_playlog_inprogress_books.add(progress.library_item_id)
+        await self.mass.music.mark_item_played(
+            mass_audiobook,
+            fully_played=progress.is_finished,
+            seconds_played=int(progress.current_time),
+        )
+
+    async def _update_playlog_episode(self, progress: MediaProgress) -> None:
+        self.progress_guard.add_progress(progress.library_item_id, progress.episode_id)
+        _episode_id = f"{progress.library_item_id} {progress.episode_id}"
+        try:
+            # need to obtain full podcast, and then search for episode
+            mass_episode = await self.get_podcast_episode(_episode_id, add_progress=False)
+        except MediaNotFoundError:
+            return
+        self.mass_playlog_inprogress_episodes.add(_episode_id)
+        await self.mass.music.mark_item_played(
+            mass_episode,
+            fully_played=progress.is_finished,
+            seconds_played=int(progress.current_time),
+        )
 
     async def _cache_set_helper_libraries(self) -> None:
         await self.mass.cache.set(
