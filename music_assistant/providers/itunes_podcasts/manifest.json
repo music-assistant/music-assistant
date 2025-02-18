@@ -1,0 +1,14 @@
+{
+  "type": "music",
+  "domain": "itunes_podcasts",
+  "name": "iTunes Podcast Search",
+  "description": "Search podcasts via iTunes API in Music Assistant.",
+  "codeowners": [
+    "@fmunkes"
+  ],
+  "requirements": [
+    "podcastparser"
+  ],
+  "documentation": "https://music-assistant.io/music-providers/itunes-podcasts/",
+  "multi_instance": false
+}
