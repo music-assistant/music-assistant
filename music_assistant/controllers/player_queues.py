@@ -50,6 +50,7 @@ from music_assistant_models.media_items import (
     PodcastEpisode,
     media_from_dict,
 )
+from music_assistant_models.playback_progress_report import MediaItemPlaybackProgressReport
 from music_assistant_models.player import PlayerMedia
 from music_assistant_models.player_queue import PlayerQueue
 from music_assistant_models.queue_item import QueueItem
@@ -109,21 +110,6 @@ class CompareState(TypedDict):
     stream_title: str | None
     codec_type: ContentType | None
     output_formats: list[str] | None
-
-
-class MediaItemPlaybackProgressReport(TypedDict):
-    """Object to submit in a progress the event submitted to report media playback."""
-
-    uri: str
-    media_type: MediaType
-    name: str
-    artist: str | None
-    album: str | None
-    image_url: str | None
-    duration: int
-    mbid: str | None
-    seconds_played: int
-    fully_played: bool
 
 
 class PlayerQueuesController(CoreController):
@@ -1894,10 +1880,11 @@ class PlayerQueuesController(CoreController):
         else:
             fully_played = seconds_played >= duration - 10
 
+        is_playing = is_current_item and queue.state == PlayerState.PLAYING
         self.logger.debug(
             "%s %s '%s' (%s) - Fully played: %s - Progress: %s (%s/%ss)",
             queue.display_name,
-            "is playing" if (is_current_item and queue.state == PlayerState.PLAYING) else "played",
+            "is playing" if is_playing else "played",
             item_to_report.name,
             item_to_report.uri,
             fully_played,
@@ -1920,8 +1907,8 @@ class PlayerQueuesController(CoreController):
             object_id=item_to_report.media_item.uri,
             data=MediaItemPlaybackProgressReport(
                 uri=item_to_report.media_item.uri,
-                name=item_to_report.media_item.name,
                 media_type=item_to_report.media_item.media_type,
+                name=item_to_report.media_item.name,
                 artist=getattr(item_to_report.media_item, "artist_str", None),
                 album=(
                     album.name
@@ -1937,5 +1924,6 @@ class PlayerQueuesController(CoreController):
                 mbid=(getattr(item_to_report.media_item, "mbid", None)),
                 seconds_played=seconds_played,
                 fully_played=fully_played,
+                is_playing=is_playing,
             ),
         )

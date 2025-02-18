@@ -293,7 +293,7 @@ class SpotifyProvider(MusicProvider):
         if self._sp_user:
             postfix = self._sp_user["display_name"]
             return f"{self.manifest.name}: {postfix}"
-        return super().name
+        return super().default_name
 
     async def search(
         self, search_query: str, media_types=list[MediaType], limit: int = 5
