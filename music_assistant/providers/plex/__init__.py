@@ -182,7 +182,7 @@ async def get_config_entries(  # noqa: PLR0915
             label="Local server IP",
             description="The local server IP (e.g. 192.168.1.77)",
             required=True,
-            value=values.get(CONF_LOCAL_SERVER_IP) if values else None,
+            value=cast(str, values.get(CONF_LOCAL_SERVER_IP)) if values else None,
         ),
         ConfigEntry(
             key=CONF_LOCAL_SERVER_PORT,
@@ -191,7 +191,7 @@ async def get_config_entries(  # noqa: PLR0915
             description="The local server port (e.g. 32400)",
             required=True,
             default_value=32400,
-            value=values.get(CONF_LOCAL_SERVER_PORT) if values else None,
+            value=cast(int, values.get(CONF_LOCAL_SERVER_PORT)) if values else None,
         ),
         ConfigEntry(
             key=CONF_LOCAL_SERVER_SSL,
@@ -216,7 +216,7 @@ async def get_config_entries(  # noqa: PLR0915
             type=ConfigEntryType.SECURE_STRING,
             label=CONF_AUTH_TOKEN,
             action=CONF_AUTH_TOKEN,
-            value=values.get(CONF_AUTH_TOKEN) if values else None,
+            value=cast(str | None, values.get(CONF_AUTH_TOKEN)) if values else None,
             hidden=True,
         ),
     ]
@@ -257,7 +257,7 @@ async def get_config_entries(  # noqa: PLR0915
             ):
                 msg = "Unable to retrieve Servers and/or Music Libraries"
                 raise LoginFailed(msg)
-            conf_libraries.options = tuple(
+            conf_libraries.options = [
                 # use the same value for both the value and the title
                 # until we find out what plex uses as stable identifiers
                 ConfigValueOption(
@@ -265,7 +265,7 @@ async def get_config_entries(  # noqa: PLR0915
                     value=x,
                 )
                 for x in libraries
-            )
+            ]
             # select first library as (default) value
             conf_libraries.default_value = libraries[0]
             conf_libraries.value = libraries[0]

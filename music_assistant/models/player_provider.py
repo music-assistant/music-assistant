@@ -315,10 +315,10 @@ class PlayerProvider(Provider):
                 label="Power Control",
                 default_value=PLAYER_CONTROL_NATIVE if supports_power else PLAYER_CONTROL_NONE,
                 required=True,
-                options=(
+                options=[
                     *base_power_options,
                     *(ConfigValueOption(x.name, x.id) for x in power_controls),
-                ),
+                ],
                 category="player_controls",
             ),
             # Volume control config entry
@@ -328,10 +328,10 @@ class PlayerProvider(Provider):
                 label="Volume Control",
                 default_value=PLAYER_CONTROL_NATIVE if supports_volume else PLAYER_CONTROL_NONE,
                 required=True,
-                options=(
+                options=[
                     *base_volume_options,
                     *(ConfigValueOption(x.name, x.id) for x in volume_controls),
-                ),
+                ],
                 category="player_controls",
             ),
             # Mute control config entry
@@ -341,10 +341,10 @@ class PlayerProvider(Provider):
                 label="Mute Control",
                 default_value=PLAYER_CONTROL_NATIVE if supports_mute else PLAYER_CONTROL_NONE,
                 required=True,
-                options=(
+                options=[
                     *base_mute_options,
-                    *(ConfigValueOption(x.name, x.id) for x in mute_controls),
-                ),
+                    *[ConfigValueOption(x.name, x.id) for x in mute_controls],
+                ],
                 category="player_controls",
             ),
         )

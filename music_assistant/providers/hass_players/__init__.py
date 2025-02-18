@@ -143,10 +143,10 @@ async def get_config_entries(
         ConfigEntry(
             key=CONF_PLAYERS,
             type=ConfigEntryType.STRING,
+            multi_value=True,
             label="Player entities",
             required=True,
-            options=tuple(player_entities),
-            multi_value=True,
+            options=player_entities,
             description="Specify which HA media_player entity id's you "
             "like to import as players in Music Assistant.",
         ),

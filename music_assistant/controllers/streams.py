@@ -136,10 +136,10 @@ class StreamsController(CoreController):
                 type=ConfigEntryType.STRING,
                 default_value=VolumeNormalizationMode.FALLBACK_DYNAMIC,
                 label="Volume normalization method for radio streams",
-                options=(
+                options=[
                     ConfigValueOption(x.value.replace("_", " ").title(), x.value)
                     for x in VolumeNormalizationMode
-                ),
+                ],
                 category="audio",
             ),
             ConfigEntry(
@@ -147,10 +147,10 @@ class StreamsController(CoreController):
                 type=ConfigEntryType.STRING,
                 default_value=VolumeNormalizationMode.FALLBACK_DYNAMIC,
                 label="Volume normalization method for tracks",
-                options=(
+                options=[
                     ConfigValueOption(x.value.replace("_", " ").title(), x.value)
                     for x in VolumeNormalizationMode
-                ),
+                ],
                 category="audio",
             ),
             ConfigEntry(
@@ -187,7 +187,7 @@ class StreamsController(CoreController):
                 key=CONF_BIND_IP,
                 type=ConfigEntryType.STRING,
                 default_value="0.0.0.0",
-                options=(ConfigValueOption(x, x) for x in {"0.0.0.0", *all_ips}),
+                options=[ConfigValueOption(x, x) for x in {"0.0.0.0", *all_ips}],
                 label="Bind to IP/interface",
                 description="Start the stream server on this specific interface. \n"
                 "Use 0.0.0.0 to bind to all interfaces, which is the default. \n"
@@ -1006,11 +1006,14 @@ class StreamsController(CoreController):
     ) -> AudioFormat:
         """Parse (player specific) output format details for given format string."""
         content_type: ContentType = ContentType.try_parse(output_format_str)
-        supported_rates_conf = await self.mass.config.get_player_config_value(
-            player.player_id, CONF_SAMPLE_RATES
+        supported_rates_conf: list[
+            tuple[str, str]
+        ] = await self.mass.config.get_player_config_value(
+            player.player_id, CONF_SAMPLE_RATES, unpack_splitted_values=True
         )
-        supported_sample_rates: tuple[int] = tuple(x[0] for x in supported_rates_conf)
-        supported_bit_depths: tuple[int] = tuple(x[1] for x in supported_rates_conf)
+        supported_sample_rates: tuple[int] = tuple(int(x[0]) for x in supported_rates_conf)
+        supported_bit_depths: tuple[int] = tuple(int(x[1]) for x in supported_rates_conf)
+
         player_max_bit_depth = max(supported_bit_depths)
         if content_type.is_pcm() or content_type == ContentType.WAV:
             # parse pcm details from format string
@@ -1046,10 +1049,12 @@ class StreamsController(CoreController):
         player: Player,
     ) -> AudioFormat:
         """Parse (player specific) flow stream PCM format."""
-        supported_rates_conf = await self.mass.config.get_player_config_value(
-            player.player_id, CONF_SAMPLE_RATES
+        supported_rates_conf: list[
+            tuple[str, str]
+        ] = await self.mass.config.get_player_config_value(
+            player.player_id, CONF_SAMPLE_RATES, unpack_splitted_values=True
         )
-        supported_sample_rates: tuple[int] = tuple(x[0] for x in supported_rates_conf)
+        supported_sample_rates: tuple[int] = tuple(int(x[0]) for x in supported_rates_conf)
         output_sample_rate = DEFAULT_PCM_FORMAT.sample_rate
         for sample_rate in (192000, 96000, 48000, 44100):
             if sample_rate in supported_sample_rates:

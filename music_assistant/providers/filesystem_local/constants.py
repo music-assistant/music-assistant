@@ -15,11 +15,11 @@ CONF_ENTRY_MISSING_ALBUM_ARTIST = ConfigEntry(
     default_value="various_artists",
     help_link="https://music-assistant.io/music-providers/filesystem/#tagging-files",
     required=False,
-    options=(
+    options=[
         ConfigValueOption("Use Track artist(s)", "track_artist"),
         ConfigValueOption("Use Various Artists", "various_artists"),
         ConfigValueOption("Use Folder name (if possible)", "folder_name"),
-    ),
+    ],
     depends_on=CONF_CONTENT_TYPE,
     depends_on_value="music",
 )
@@ -39,11 +39,11 @@ CONF_ENTRY_CONTENT_TYPE = ConfigEntry(
     default_value="music",
     description="The type of content to expect in the media folder(s)",
     required=False,
-    options=(
+    options=[
         ConfigValueOption("Music", "music"),
         ConfigValueOption("Audiobooks", "audiobooks"),
         ConfigValueOption("Podcasts", "podcasts"),
-    ),
+    ],
 )
 CONF_ENTRY_CONTENT_TYPE_READ_ONLY = ConfigEntry.from_dict(
     {

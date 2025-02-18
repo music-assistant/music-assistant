@@ -226,8 +226,8 @@ async def get_config_entries(
                 label=CONF_QUALITY,
                 required=True,
                 hidden=True,
-                default_value=values.get(CONF_QUALITY, TidalQualityEnum.HI_RES.value),
-                value=values.get(CONF_QUALITY),
+                value=cast(str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value),
+                default_value=cast(str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value),
             ),
         )
     else:
@@ -238,9 +238,9 @@ async def get_config_entries(
                 label="Quality setting for Tidal:",
                 required=True,
                 description="HIGH_LOSSLESS = 16bit 44.1kHz, HI_RES = Up to 24bit 192kHz",
-                options=tuple(ConfigValueOption(x.value, x.name) for x in TidalQualityEnum),
+                options=[ConfigValueOption(x.value, x.name) for x in TidalQualityEnum],
                 default_value=TidalQualityEnum.HI_RES.value,
-                value=values.get(CONF_QUALITY) if values else None,
+                value=cast(str, values.get(CONF_QUALITY)) if values else None,
             ),
             ConfigEntry(
                 key=LABEL_START_PKCE_LOGIN,
@@ -261,7 +261,7 @@ async def get_config_entries(
                 action=CONF_ACTION_START_PKCE_LOGIN,
                 depends_on=CONF_QUALITY,
                 action_label="Starts the auth process via PKCE on Tidal.com",
-                value=values.get(CONF_TEMP_SESSION) if values else None,
+                value=cast(str, values.get(CONF_TEMP_SESSION)) if values else None,
                 hidden=action == CONF_ACTION_START_PKCE_LOGIN,
             ),
             ConfigEntry(
@@ -270,7 +270,7 @@ async def get_config_entries(
                 label="Temporary session for Tidal",
                 hidden=True,
                 required=False,
-                value=values.get(CONF_TEMP_SESSION) if values else None,
+                value=cast(str, values.get(CONF_TEMP_SESSION)) if values else None,
             ),
             ConfigEntry(
                 key=LABEL_OOPS_URL,
@@ -287,7 +287,7 @@ async def get_config_entries(
                 " Tidal.com and being redirected to a page that prominently displays"
                 " 'Oops' at the top.",
                 depends_on=CONF_ACTION_START_PKCE_LOGIN,
-                value=values.get(CONF_OOPS_URL) if values else None,
+                value=cast(str, values.get(CONF_OOPS_URL)) if values else None,
                 hidden=action != CONF_ACTION_START_PKCE_LOGIN,
             ),
             ConfigEntry(
@@ -320,7 +320,7 @@ async def get_config_entries(
             label="Authentication token for Tidal",
             description="You need to link Music Assistant to your Tidal account.",
             hidden=True,
-            value=values.get(CONF_AUTH_TOKEN) if values else None,
+            value=cast(str, values.get(CONF_AUTH_TOKEN)) if values else None,
         ),
         ConfigEntry(
             key=CONF_REFRESH_TOKEN,
@@ -328,14 +328,14 @@ async def get_config_entries(
             label="Refresh token for Tidal",
             description="You need to link Music Assistant to your Tidal account.",
             hidden=True,
-            value=values.get(CONF_REFRESH_TOKEN) if values else None,
+            value=cast(str, values.get(CONF_REFRESH_TOKEN)) if values else None,
         ),
         ConfigEntry(
             key=CONF_EXPIRY_TIME,
             type=ConfigEntryType.STRING,
             label="Expiry time of auth token for Tidal",
             hidden=True,
-            value=values.get(CONF_EXPIRY_TIME) if values else None,
+            value=cast(str, values.get(CONF_EXPIRY_TIME)) if values else None,
         ),
         ConfigEntry(
             key=CONF_USER_ID,
@@ -343,7 +343,7 @@ async def get_config_entries(
             label="Your Tidal User ID",
             description="This is your unique Tidal user ID.",
             hidden=True,
-            value=values.get(CONF_USER_ID) if values else None,
+            value=cast(str, values.get(CONF_USER_ID)) if values else None,
         ),
     )
 

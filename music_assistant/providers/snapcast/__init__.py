@@ -176,7 +176,7 @@ async def get_config_entries(
         ConfigEntry(
             key=CONF_SERVER_TRANSPORT_CODEC,
             type=ConfigEntryType.STRING,
-            options=(
+            options=[
                 ConfigValueOption(
                     title="FLAC",
                     value="flac",
@@ -193,7 +193,7 @@ async def get_config_entries(
                     title="PCM",
                     value="pcm",
                 ),
-            ),
+            ],
             default_value="flac",
             label="Snapserver default transport codec",
             required=False,

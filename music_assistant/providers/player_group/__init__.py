@@ -103,10 +103,10 @@ CONF_ENTRY_GROUP_TYPE = ConfigEntry(
 CONF_ENTRY_GROUP_MEMBERS = ConfigEntry(
     key=CONF_GROUP_MEMBERS,
     type=ConfigEntryType.STRING,
+    multi_value=True,
     label="Group members",
     default_value=[],
     description="Select all players you want to be part of this group",
-    multi_value=True,
     required=False,  # otherwise dynamic members won't work (which allows empty members list)
 )
 CONF_ENTRY_SAMPLE_RATES_UGP = create_sample_rates_config_entry(44100, 16, 44100, 16, True)

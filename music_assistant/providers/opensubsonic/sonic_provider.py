@@ -485,10 +485,11 @@ class OpenSonicProvider(MusicProvider):
                 songCount=count,
             )
         while results["songs"]:
-            album: SonicAlbum | None = None
+            album: Album | None = None
             for entry in results["songs"]:
-                if album is None or album.item_id != entry.parent:
-                    album = await self.get_album(prov_album_id=entry.parent)
+                aid = entry.album_id if entry.album_id else entry.parent
+                if album is None or album.item_id != aid:
+                    album = await self.get_album(prov_album_id=aid)
                 yield self._parse_track(entry, album=album)
             offset += count
             results = await self._run_async(
@@ -570,7 +571,10 @@ class OpenSonicProvider(MusicProvider):
         except (ParameterError, DataNotFoundError) as e:
             msg = f"Item {prov_track_id} not found"
             raise MediaNotFoundError(msg) from e
-        album: SonicAlbum = await self.get_album(prov_album_id=sonic_song.parent)
+        aid = sonic_song.album_id if sonic_song.album_id else sonic_song.parent
+        if not aid:
+            self.logger.warning("Unable to find album id for track %s", sonic_song.id)
+        album: Album = await self.get_album(prov_album_id=aid)
         return self._parse_track(sonic_song, album=album)
 
     async def get_artist_albums(self, prov_artist_id: str) -> list[Album]:
@@ -660,10 +664,13 @@ class OpenSonicProvider(MusicProvider):
             msg = f"Playlist {prov_playlist_id} not found"
             raise MediaNotFoundError(msg) from e
 
-        album: SonicAlbum | None = None
+        album: Album | None = None
         for index, sonic_song in enumerate(sonic_playlist.songs, 1):
-            if not album or album.item_id != sonic_song.parent:
-                album = await self.get_album(prov_album_id=sonic_song.parent)
+            aid = sonic_song.album_id if sonic_song.album_id else sonic_song.parent
+            if not aid:
+                self.logger.warning("Unable to find albumd for track %s", sonic_song.id)
+            if not album or album.item_id != aid:
+                album = await self.get_album(prov_album_id=aid)
             track = self._parse_track(sonic_song, album=album)
             track.position = index
             result.append(track)

@@ -41,7 +41,7 @@ from music_assistant.models.music_provider import MusicProvider
 from .base import MediaControllerBase
 
 
-class TracksController(MediaControllerBase[Track, Track]):
+class TracksController(MediaControllerBase[Track]):
     """Controller managing MediaItems of type Track."""
 
     db_table = DB_TABLE_TRACKS

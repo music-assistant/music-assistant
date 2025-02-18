@@ -1,9 +1,13 @@
 """All constants for Music Assistant."""
 
 import pathlib
-from typing import Final
+from typing import Final, cast
 
-from music_assistant_models.config_entries import ConfigEntry, ConfigValueOption
+from music_assistant_models.config_entries import (
+    MULTI_VALUE_SPLITTER,
+    ConfigEntry,
+    ConfigValueOption,
+)
 from music_assistant_models.enums import ConfigEntryType, ContentType
 from music_assistant_models.media_items import AudioFormat
 
@@ -126,14 +130,14 @@ CONF_ENTRY_LOG_LEVEL = ConfigEntry(
     key=CONF_LOG_LEVEL,
     type=ConfigEntryType.STRING,
     label="Log level",
-    options=(
+    options=[
         ConfigValueOption("global", "GLOBAL"),
         ConfigValueOption("info", "INFO"),
         ConfigValueOption("warning", "WARNING"),
         ConfigValueOption("error", "ERROR"),
         ConfigValueOption("debug", "DEBUG"),
         ConfigValueOption("verbose", "VERBOSE"),
-    ),
+    ],
     default_value="GLOBAL",
     category="advanced",
 )
@@ -185,12 +189,12 @@ CONF_ENTRY_AUTO_PLAY = ConfigEntry(
 CONF_ENTRY_OUTPUT_CHANNELS = ConfigEntry(
     key=CONF_OUTPUT_CHANNELS,
     type=ConfigEntryType.STRING,
-    options=(
+    options=[
         ConfigValueOption("Stereo (both channels)", "stereo"),
         ConfigValueOption("Left channel", "left"),
         ConfigValueOption("Right channel", "right"),
         ConfigValueOption("Mono (both channels)", "mono"),
-    ),
+    ],
     default_value="stereo",
     label="Output Channel Mode",
     category="audio",
@@ -334,12 +338,12 @@ CONF_ENTRY_TTS_PRE_ANNOUNCE = ConfigEntry(
 CONF_ENTRY_ANNOUNCE_VOLUME_STRATEGY = ConfigEntry(
     key=CONF_ANNOUNCE_VOLUME_STRATEGY,
     type=ConfigEntryType.STRING,
-    options=(
+    options=[
         ConfigValueOption("Absolute volume", "absolute"),
         ConfigValueOption("Relative volume increase", "relative"),
         ConfigValueOption("Volume increase by fixed percentage", "percentual"),
         ConfigValueOption("Do not adjust volume", "none"),
-    ),
+    ],
     default_value="percentual",
     label="Volume strategy for Announcements",
     category="announcements",
@@ -404,30 +408,31 @@ CONF_ENTRY_PLAYER_ICON_GROUP = ConfigEntry.from_dict(
     {**CONF_ENTRY_PLAYER_ICON.to_dict(), "default_value": "mdi-speaker-multiple"}
 )
 
+
 CONF_ENTRY_SAMPLE_RATES = ConfigEntry(
     key=CONF_SAMPLE_RATES,
-    type=ConfigEntryType.INTEGER_TUPLE,
-    options=(
-        ConfigValueOption("44.1kHz / 16 bits", (44100, 16)),
-        ConfigValueOption("44.1kHz / 24 bits", (44100, 24)),
-        ConfigValueOption("48kHz / 16 bits", (48000, 16)),
-        ConfigValueOption("48kHz / 24 bits", (48000, 24)),
-        ConfigValueOption("88.2kHz / 16 bits", (88200, 16)),
-        ConfigValueOption("88.2kHz / 24 bits", (88200, 24)),
-        ConfigValueOption("96kHz / 16 bits", (96000, 16)),
-        ConfigValueOption("96kHz / 24 bits", (96000, 24)),
-        ConfigValueOption("176.4kHz / 16 bits", (176400, 16)),
-        ConfigValueOption("176.4kHz / 24 bits", (176400, 24)),
-        ConfigValueOption("192kHz / 16 bits", (192000, 16)),
-        ConfigValueOption("192kHz / 24 bits", (192000, 24)),
-        ConfigValueOption("352.8kHz / 16 bits", (352800, 16)),
-        ConfigValueOption("352.8kHz / 24 bits", (352800, 24)),
-        ConfigValueOption("384kHz / 16 bits", (384000, 16)),
-        ConfigValueOption("384kHz / 24 bits", (384000, 24)),
-    ),
-    default_value=[(44100, 16), (48000, 16)],
-    required=True,
+    type=ConfigEntryType.SPLITTED_STRING,
     multi_value=True,
+    options=[
+        ConfigValueOption("44.1kHz / 16 bits", f"44100{MULTI_VALUE_SPLITTER}16"),
+        ConfigValueOption("44.1kHz / 24 bits", f"44100{MULTI_VALUE_SPLITTER}24"),
+        ConfigValueOption("48kHz / 16 bits", f"48000{MULTI_VALUE_SPLITTER}16"),
+        ConfigValueOption("48kHz / 24 bits", f"48000{MULTI_VALUE_SPLITTER}24"),
+        ConfigValueOption("88.2kHz / 16 bits", f"88200{MULTI_VALUE_SPLITTER}16"),
+        ConfigValueOption("88.2kHz / 24 bits", f"88200{MULTI_VALUE_SPLITTER}24"),
+        ConfigValueOption("96kHz / 16 bits", f"96000{MULTI_VALUE_SPLITTER}16"),
+        ConfigValueOption("96kHz / 24 bits", f"96000{MULTI_VALUE_SPLITTER}24"),
+        ConfigValueOption("176.4kHz / 16 bits", f"176400{MULTI_VALUE_SPLITTER}16"),
+        ConfigValueOption("176.4kHz / 24 bits", f"176400{MULTI_VALUE_SPLITTER}24"),
+        ConfigValueOption("192kHz / 16 bits", f"192000{MULTI_VALUE_SPLITTER}16"),
+        ConfigValueOption("192kHz / 24 bits", f"192000{MULTI_VALUE_SPLITTER}24"),
+        ConfigValueOption("352.8kHz / 16 bits", f"352800{MULTI_VALUE_SPLITTER}16"),
+        ConfigValueOption("352.8kHz / 24 bits", f"352800{MULTI_VALUE_SPLITTER}24"),
+        ConfigValueOption("384kHz / 16 bits", f"384000{MULTI_VALUE_SPLITTER}16"),
+        ConfigValueOption("384kHz / 24 bits", f"384000{MULTI_VALUE_SPLITTER}24"),
+    ],
+    default_value=[f"44100{MULTI_VALUE_SPLITTER}16", f"44100{MULTI_VALUE_SPLITTER}24"],
+    required=True,
     label="Sample rates supported by this player",
     category="advanced",
     description="The sample rates (and bit depths) supported by this player.\n"
@@ -438,11 +443,11 @@ CONF_ENTRY_SAMPLE_RATES = ConfigEntry(
 CONF_ENTRY_HTTP_PROFILE = ConfigEntry(
     key=CONF_HTTP_PROFILE,
     type=ConfigEntryType.STRING,
-    options=(
+    options=[
         ConfigValueOption("Profile 1 - chunked", "chunked"),
         ConfigValueOption("Profile 2 - no content length", "no_content_length"),
         ConfigValueOption("Profile 3 - forced content length", "forced_content_length"),
-    ),
+    ],
     default_value="no_content_length",
     label="HTTP Profile used for sending audio",
     category="advanced",
@@ -465,11 +470,11 @@ CONF_ENTRY_HTTP_PROFILE_FORCED_2 = ConfigEntry.from_dict(
 CONF_ENTRY_ENABLE_ICY_METADATA = ConfigEntry(
     key=CONF_ENABLE_ICY_METADATA,
     type=ConfigEntryType.STRING,
-    options=(
+    options=[
         ConfigValueOption("Disabled - do not send ICY metadata", "disabled"),
         ConfigValueOption("Profile 1 - basic info", "basic"),
         ConfigValueOption("Profile 2 - full info (including image)", "full"),
-    ),
+    ],
     depends_on=CONF_FLOW_MODE,
     default_value="disabled",
     label="Try to ingest metadata into stream (ICY)",
@@ -502,18 +507,19 @@ def create_sample_rates_config_entry(
     conf_entry = ConfigEntry.from_dict(CONF_ENTRY_SAMPLE_RATES.to_dict())
     conf_entry.hidden = hidden
     options: list[ConfigValueOption] = []
-    default_value: list[tuple[int, int]] = []
+    default_value: list[str] = []
     for option in CONF_ENTRY_SAMPLE_RATES.options:
-        if not isinstance(option.value, tuple):
-            continue
-        sample_rate, bit_depth = option.value
+        option_value = cast(str, option.value)
+        sample_rate_str, bit_depth_str = option_value.split(MULTI_VALUE_SPLITTER, 1)
+        sample_rate = int(sample_rate_str)
+        bit_depth = int(bit_depth_str)
         if supported_sample_rates and sample_rate not in supported_sample_rates:
             continue
         if sample_rate <= max_sample_rate and bit_depth <= max_bit_depth:
             options.append(option)
         if sample_rate <= safe_max_sample_rate and bit_depth <= safe_max_bit_depth:
-            default_value.append(option.value)
-    conf_entry.options = tuple(options)
+            default_value.append(option_value)
+    conf_entry.options = options
     conf_entry.default_value = default_value
     return conf_entry
 

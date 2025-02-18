@@ -122,7 +122,7 @@ class WebserverController(CoreController):
                 key=CONF_BIND_IP,
                 type=ConfigEntryType.STRING,
                 default_value="0.0.0.0",
-                options=(ConfigValueOption(x, x) for x in {"0.0.0.0", *all_ips}),
+                options=[ConfigValueOption(x, x) for x in {"0.0.0.0", *all_ips}],
                 label="Bind to IP/interface",
                 description="Start the (web)server on this specific interface. \n"
                 "Use 0.0.0.0 to bind to all interfaces. \n"
