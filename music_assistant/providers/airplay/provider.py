@@ -62,6 +62,8 @@ from .helpers import (
 )
 from .player import AirPlayPlayer
 
+CONF_IGNORE_VOLUME = "ignore_volume"
+
 PLAYER_CONFIG_ENTRIES = (
     CONF_ENTRY_FLOW_MODE_ENFORCED,
     CONF_ENTRY_CROSSFADE,
@@ -112,6 +114,16 @@ PLAYER_CONFIG_ENTRIES = (
     ),
     # airplay has fixed sample rate/bit depth so make this config entry static and hidden
     create_sample_rates_config_entry(44100, 16, 44100, 16, True),
+    ConfigEntry(
+        key=CONF_IGNORE_VOLUME,
+        type=ConfigEntryType.BOOLEAN,
+        default_value=False,
+        label="Ignore volume reports sent by the device itself",
+        description="The Airplay protocol allows devices to report their own volume level. \n"
+        "For some devices this is not reliable and can cause unexpected volume changes. \n"
+        "Enable this option to ignore these reports.",
+        category="airplay",
+    ),
 )
 
 BROKEN_RAOP_WARN = ConfigEntry(
@@ -122,6 +134,7 @@ BROKEN_RAOP_WARN = ConfigEntry(
     label="This player is known to have broken Airplay 1 (RAOP) support. "
     "Playback may fail or simply be silent. There is no workaround for this issue at the moment.",
 )
+
 
 # TODO: Airplay provider
 # - Implement authentication for Apple TV
@@ -235,6 +248,7 @@ class AirplayProvider(PlayerProvider):
     async def get_player_config_entries(self, player_id: str) -> tuple[ConfigEntry, ...]:
         """Return all (provider/player specific) Config Entries for the given player (if any)."""
         base_entries = await super().get_player_config_entries(player_id)
+
         if player := self.mass.players.get(player_id):
             if is_broken_raop_model(player.device_info.manufacturer, player.device_info.model):
                 return (*base_entries, BROKEN_RAOP_WARN, *PLAYER_CONFIG_ENTRIES)
@@ -572,6 +586,10 @@ class AirplayProvider(PlayerProvider):
             mass_player = self.mass.players.get(player_id)
             if not mass_player:
                 return
+            ignore_volume_report = (
+                self.mass.config.get_raw_player_config_value(player_id, CONF_IGNORE_VOLUME, False)
+                or mass_player.device_info.manufacturer.lower() == "apple"
+            )
             active_queue = self.mass.player_queues.get_active_queue(player_id)
             if path == "/ctrl-int/1/nextitem":
                 self.mass.create_task(self.mass.player_queues.next(active_queue.queue_id))
@@ -602,19 +620,16 @@ class AirplayProvider(PlayerProvider):
                 # we ignore this if the player is already playing
                 if mass_player.state == PlayerState.PLAYING:
                     self.mass.create_task(self.mass.player_queues.pause(active_queue.queue_id))
-            elif "dmcp.device-volume=" in path:
-                if mass_player.device_info.manufacturer.lower() == "apple":
-                    # Apple devices only report their previous volume level ?!
-                    return
+            elif "dmcp.device-volume=" in path and not ignore_volume_report:
                 # This is a bit annoying as this can be either the device confirming a new volume
                 # we've sent or the device requesting a new volume itself.
                 # In case of a small rounding difference, we ignore this,
                 # to prevent an endless pingpong of volume changes
                 raop_volume = float(path.split("dmcp.device-volume=", 1)[-1])
                 volume = convert_airplay_volume(raop_volume)
-                assert mass_player.volume_level is not None
+                cur_volume = mass_player.volume_level or 0
                 if (
-                    abs(mass_player.volume_level - volume) > 3
+                    abs(cur_volume - volume) > 3
                     or (time.time() - airplay_player.last_command_sent) > 3
                 ):
                     self.mass.create_task(self.cmd_volume_set(player_id, volume))
@@ -624,9 +639,9 @@ class AirplayProvider(PlayerProvider):
             elif "dmcp.volume=" in path:
                 # volume change request from device (e.g. volume buttons)
                 volume = int(path.split("dmcp.volume=", 1)[-1])
-                assert mass_player.volume_level is not None
+                cur_volume = mass_player.volume_level or 0
                 if (
-                    abs(mass_player.volume_level - volume) > 2
+                    abs(cur_volume - volume) > 2
                     or (time.time() - airplay_player.last_command_sent) > 3
                 ):
                     self.mass.create_task(self.cmd_volume_set(player_id, volume))

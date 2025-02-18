@@ -19,7 +19,6 @@ cryptography==44.0.1
 deezer-python-async==0.3.0
 defusedxml==0.7.1
 duration-parser==1.0.1
-eyeD3==0.9.7
 faust-cchardet>=2.1.18
 hass-client==1.2.0
 ibroadcastaio==0.4.0
@@ -27,7 +26,8 @@ ifaddr==0.2.0
 mashumaro==3.15
 memory-tempfile==2.2.3
 music-assistant-frontend==2.11.5
-music-assistant-models==1.1.26
+music-assistant-models==1.1.27
+mutagen==1.47.0
 orjson==3.10.12
 pillow==11.1.0
 pkce==1.0.3
