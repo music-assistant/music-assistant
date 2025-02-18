@@ -1048,6 +1048,8 @@ class MusicController(CoreController):
         if provider_instance.startswith(("filesystem", "jellyfin", "plex", "opensubsonic")):
             # removal of a local provider can become messy very fast due to the relations
             # such as images pointing at the files etc. so we just reset the whole db
+            # TODO: Handle this more gracefully in the future where we remove the provider
+            # and traverse the database to also remove all related items.
             self.logger.warning(
                 "Removal of local provider detected, issuing full database reset..."
             )

@@ -85,10 +85,10 @@ async def get_config_entries(
             key=CONF_SXM_REGION,
             type=ConfigEntryType.STRING,
             default_value="US",
-            options=(
+            options=[
                 ConfigValueOption(title="United States", value="US"),
                 ConfigValueOption(title="Canada", value="CA"),
-            ),
+            ],
             label="Region",
             required=True,
         ),

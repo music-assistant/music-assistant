@@ -76,7 +76,6 @@ async def get_config_entries(
         ConfigEntry(
             key=CONF_FEED_URL,
             type=ConfigEntryType.STRING,
-            default_value=[],
             label="RSS Feed URL",
             required=True,
         ),

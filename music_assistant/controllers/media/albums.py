@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from music_assistant.models.music_provider import MusicProvider
 
 
-class AlbumsController(MediaControllerBase[Album, Album]):
+class AlbumsController(MediaControllerBase[Album]):
     """Controller managing MediaItems of type Album."""
 
     db_table = DB_TABLE_ALBUMS
@@ -215,10 +215,6 @@ class AlbumsController(MediaControllerBase[Album, Album]):
         if not library_album:
             return await self._get_provider_album_tracks(item_id, provider_instance_id_or_domain)
         db_items = await self.get_library_album_tracks(library_album.item_id)
-        # override embedded images with album thumb
-        if library_album.image:
-            for db_item in db_items:
-                db_item.metadata.images = library_album.metadata.images
         result: UniqueList[Track] = UniqueList(db_items)
         if in_library_only:
             # return in-library items only
@@ -246,6 +242,10 @@ class AlbumsController(MediaControllerBase[Album, Album]):
                     continue
                 unique_ids.add(unique_id)
                 provider_track.album = library_album
+                # always prefer album image
+                album_images = [library_album.image] if library_album.image else []
+                track_images = provider_track.metadata.images or []
+                provider_track.metadata.images = album_images + track_images
                 result.append(provider_track)
         # NOTE: we need to return the results sorted on disc/track here
         # to ensure the correct order at playback

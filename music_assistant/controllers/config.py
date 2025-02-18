@@ -15,6 +15,7 @@ from aiofiles.os import wrap
 from cryptography.fernet import Fernet, InvalidToken
 from music_assistant_models import config_entries
 from music_assistant_models.config_entries import (
+    MULTI_VALUE_SPLITTER,
     ConfigEntry,
     ConfigValueType,
     CoreConfig,
@@ -356,9 +357,12 @@ class ConfigController:
         self,
         player_id: str,
         key: str,
+        unpack_splitted_values: bool = False,
     ) -> ConfigValueType:
         """Return single configentry value for a player."""
         conf = await self.get_player_config(player_id)
+        if unpack_splitted_values:
+            return conf.values[key].get_splitted_values()
         return (
             conf.values[key].value
             if conf.values[key].value is not None
@@ -793,6 +797,21 @@ class ConfigController:
                 self._data[CONF_PROVIDERS].pop(instance_id, None)
                 LOGGER.warning("Removed corrupt provider configuration: %s", instance_id)
                 changed = True
+        # migrate sample_rates config entry
+        for player_id, player_config in list(self._data.get(CONF_PLAYERS, {}).items()):
+            if not (values := player_config.get("values")):
+                continue
+            if not (sample_rates := values.get("sample_rates")):
+                continue
+            if not isinstance(sample_rates, list):
+                del player_config["values"]["sample_rates"]
+            if not any(isinstance(x, list) for x in sample_rates):
+                continue
+            player_config["values"]["sample_rates"] = [
+                f"{x[0]}{MULTI_VALUE_SPLITTER}{x[1]}" if isinstance(x, list) else x
+                for x in sample_rates
+            ]
+            changed = True
 
         if changed:
             await self._async_save()

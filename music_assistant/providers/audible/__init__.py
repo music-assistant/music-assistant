@@ -139,7 +139,7 @@ async def get_config_entries(
             hidden=not auth_required,
             required=True,
             value=locale,
-            options=(
+            options=[
                 ConfigValueOption("US and all other countries not listed", "us"),
                 ConfigValueOption("Canada", "ca"),
                 ConfigValueOption("UK and Ireland", "uk"),
@@ -151,7 +151,7 @@ async def get_config_entries(
                 ConfigValueOption("India", "in"),
                 ConfigValueOption("Spain", "es"),
                 ConfigValueOption("Brazil", "br"),
-            ),
+            ],
             default_value="us",
         ),
         ConfigEntry(
@@ -166,7 +166,7 @@ async def get_config_entries(
             type=ConfigEntryType.STRING,
             label="Post Login Url",
             required=False,
-            value=values.get(CONF_POST_LOGIN_URL),
+            value=cast(str | None, values.get(CONF_POST_LOGIN_URL)),
             hidden=not auth_required,
         ),
         ConfigEntry(
@@ -183,7 +183,7 @@ async def get_config_entries(
             label="Code Verifier",
             hidden=True,
             required=False,
-            value=values.get(CONF_CODE_VERIFIER),
+            value=cast(str | None, values.get(CONF_CODE_VERIFIER)),
         ),
         ConfigEntry(
             key=CONF_SERIAL,
@@ -191,7 +191,7 @@ async def get_config_entries(
             label="Serial",
             hidden=True,
             required=False,
-            value=values.get(CONF_SERIAL),
+            value=cast(str | None, values.get(CONF_SERIAL)),
         ),
         ConfigEntry(
             key=CONF_LOGIN_URL,
@@ -199,7 +199,7 @@ async def get_config_entries(
             label="Login Url",
             hidden=True,
             required=False,
-            value=values.get(CONF_LOGIN_URL),
+            value=cast(str | None, values.get(CONF_LOGIN_URL)),
         ),
         ConfigEntry(
             key=CONF_AUTH_FILE,
@@ -207,7 +207,7 @@ async def get_config_entries(
             label="Authentication File",
             hidden=True,
             required=True,
-            value=values.get(CONF_AUTH_FILE),
+            value=cast(str | None, values.get(CONF_AUTH_FILE)),
         ),
     )
 

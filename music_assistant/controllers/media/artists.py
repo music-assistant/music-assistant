@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from music_assistant.models.music_provider import MusicProvider
 
 
-class ArtistsController(MediaControllerBase[Artist, Artist | ItemMapping]):
+class ArtistsController(MediaControllerBase[Artist]):
     """Controller managing MediaItems of type Artist."""
 
     db_table = DB_TABLE_ARTISTS
@@ -337,7 +337,7 @@ class ArtistsController(MediaControllerBase[Artist, Artist | ItemMapping]):
     async def _add_library_item(self, item: Artist | ItemMapping) -> int:
         """Add a new item record to the database."""
         if isinstance(item, ItemMapping):
-            item = self._artist_from_item_mapping(item)
+            item = self.artist_from_item_mapping(item)
         # enforce various artists name + id
         if compare_strings(item.name, VARIOUS_ARTISTS_NAME):
             item.mbid = VARIOUS_ARTISTS_MBID
@@ -368,7 +368,7 @@ class ArtistsController(MediaControllerBase[Artist, Artist | ItemMapping]):
         if isinstance(update, ItemMapping):
             # NOTE that artist is the only mediatype where its accepted we
             # receive an itemmapping from streaming providers
-            update = self._artist_from_item_mapping(update)
+            update = self.artist_from_item_mapping(update)
             metadata = cur_item.metadata
         else:
             metadata = update.metadata if overwrite else cur_item.metadata.update(update.metadata)
@@ -512,7 +512,8 @@ class ArtistsController(MediaControllerBase[Artist, Artist | ItemMapping]):
                 return True
         return False
 
-    def _artist_from_item_mapping(self, item: ItemMapping) -> Artist:
+    def artist_from_item_mapping(self, item: ItemMapping) -> Artist:
+        """Create an Artist object from an ItemMapping object."""
         domain, instance_id = None, None
         if prov := self.mass.get_provider(item.provider):
             domain = prov.domain

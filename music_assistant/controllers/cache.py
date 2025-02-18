@@ -75,7 +75,8 @@ class CacheController(CoreController):
 
     async def close(self) -> None:
         """Cleanup on exit."""
-        await self.database.close()
+        if self.database:
+            await self.database.close()
 
     async def get(
         self,

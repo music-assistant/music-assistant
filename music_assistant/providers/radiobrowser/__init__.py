@@ -80,10 +80,10 @@ async def get_config_entries(
             # have that included in backups so we store it in the config.
             key=CONF_STORED_RADIOS,
             type=ConfigEntryType.STRING,
+            multi_value=True,
             label=CONF_STORED_RADIOS,
             default_value=[],
             required=False,
-            multi_value=True,
             hidden=True,
         ),
     )

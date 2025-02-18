@@ -77,10 +77,10 @@ async def get_config_entries(
             label="Connected Music Assistant Player",
             description="Select the player for which you want to enable Spotify Connect.",
             multi_value=False,
-            options=tuple(
+            options=[
                 ConfigValueOption(x.display_name, x.player_id)
                 for x in mass.players.all(False, False)
-            ),
+            ],
             required=True,
         ),
         # ConfigEntry(

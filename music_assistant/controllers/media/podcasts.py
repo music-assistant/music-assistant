@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from music_assistant.models.music_provider import MusicProvider
 
 
-class PodcastsController(MediaControllerBase[Podcast, Podcast]):
+class PodcastsController(MediaControllerBase[Podcast]):
     """Controller managing MediaItems of type Podcast."""
 
     db_table = DB_TABLE_PODCASTS

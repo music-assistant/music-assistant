@@ -1051,7 +1051,7 @@ class LocalFileSystemProvider(MusicProvider):
             if genre := info.get("genre"):
                 artist.metadata.genres = set(split_items(genre))
         # find local images
-        if images := await self._get_local_images(artist_path):
+        if images := await self._get_local_images(artist_path, extra_thumb_names=("artist",)):
             artist.metadata.images = UniqueList(images)
 
         await self.cache.set(artist_path, artist, base_key=cache_base_key, expiration=120)
@@ -1436,7 +1436,7 @@ class LocalFileSystemProvider(MusicProvider):
             # parse name/version
             album.name, album.version = parse_title_and_version(album.name)
             # find local images
-            if images := await self._get_local_images(folder_path):
+            if images := await self._get_local_images(folder_path, extra_thumb_names=("album",)):
                 if album.metadata.images is None:
                     album.metadata.images = UniqueList(images)
                 else:
@@ -1444,42 +1444,52 @@ class LocalFileSystemProvider(MusicProvider):
         await self.cache.set(album_dir, album, base_key=cache_base_key, expiration=120)
         return album
 
-    async def _get_local_images(self, folder: str) -> UniqueList[MediaItemImage]:
+    async def _get_local_images(
+        self, folder: str, extra_thumb_names: tuple[str, ...] | None = None
+    ) -> UniqueList[MediaItemImage]:
         """Return local images found in a given folderpath."""
         cache_base_key = f"{self.lookup_key}.folderimages"
         if (cache := await self.cache.get(folder, base_key=cache_base_key)) is not None:
             return cast(UniqueList[MediaItemImage], cache)
+        if extra_thumb_names is None:
+            extra_thumb_names = ()
         images: UniqueList[MediaItemImage] = UniqueList()
         abs_path = self.get_absolute_path(folder)
-        for item in await asyncio.to_thread(sorted_scandir, self.base_path, abs_path, sort=False):
-            if "." not in item.relative_path or item.is_dir:
+        folder_files = await asyncio.to_thread(sorted_scandir, self.base_path, abs_path, sort=False)
+        for item in folder_files:
+            if "." not in item.relative_path or item.is_dir or not item.ext:
                 continue
-            for ext in IMAGE_EXTENSIONS:
-                if item.ext != ext:
-                    continue
-                # try match on filename = one of our imagetypes
-                if item.name in ImageType:
-                    images.append(
-                        MediaItemImage(
-                            type=ImageType(item.name),
-                            path=item.relative_path,
-                            provider=self.instance_id,
-                            remotely_accessible=False,
-                        )
+            if item.ext.lower() not in IMAGE_EXTENSIONS:
+                continue
+            # try match on filename = one of our imagetypes
+            if item.name.lower() in ImageType:
+                images.append(
+                    MediaItemImage(
+                        type=ImageType(item.name),
+                        path=item.relative_path,
+                        provider=self.instance_id,
+                        remotely_accessible=False,
                     )
-                    continue
-                # try alternative names for thumbs
-                for filename in ("folder", "cover", "albumart", "artist"):
-                    if item.name.lower().startswith(filename):
-                        images.append(
-                            MediaItemImage(
-                                type=ImageType.THUMB,
-                                path=item.relative_path,
-                                provider=self.instance_id,
-                                remotely_accessible=False,
-                            )
-                        )
-                        break
+                )
+
+        # try alternative names for thumbs
+        extra_thumb_names = ("folder", "cover", *extra_thumb_names)
+        for item in folder_files:
+            if "." not in item.relative_path or item.is_dir or not item.ext:
+                continue
+            if item.ext.lower() not in IMAGE_EXTENSIONS:
+                continue
+            if item.name.lower() not in extra_thumb_names:
+                continue
+            images.append(
+                MediaItemImage(
+                    type=ImageType.THUMB,
+                    path=item.relative_path,
+                    provider=self.instance_id,
+                    remotely_accessible=False,
+                )
+            )
+
         await self.cache.set(folder, images, base_key=cache_base_key, expiration=120)
         return images
 

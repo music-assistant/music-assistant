@@ -18,6 +18,7 @@ from music_assistant_models.enums import (
 from music_assistant_models.media_items import (
     Album,
     Artist,
+    ItemMapping,
     MediaItemImage,
     MediaItemLink,
     MediaItemMetadata,
@@ -325,6 +326,8 @@ class AudioDbMetadataProvider(MetadataProvider):
             if not compare_strings(album_artist.name, adb_album["strArtist"]):
                 continue
             if not album_artist.mbid and album_artist.provider == "library":
+                if isinstance(album_artist, ItemMapping):
+                    album_artist = self.mass.music.artists.artist_from_item_mapping(album_artist)  # noqa: PLW2901
                 album_artist.mbid = adb_album["strMusicBrainzArtistID"]
                 await self.mass.music.artists.update_item_in_library(
                     album_artist.item_id,
@@ -371,6 +374,8 @@ class AudioDbMetadataProvider(MetadataProvider):
             if not compare_strings(album_artist.name, adb_track["strArtist"]):
                 continue
             if not album_artist.mbid and album_artist.provider == "library":
+                if isinstance(album_artist, ItemMapping):
+                    album_artist = self.mass.music.artists.artist_from_item_mapping(album_artist)  # noqa: PLW2901
                 album_artist.mbid = adb_track["strMusicBrainzArtistID"]
                 await self.mass.music.artists.update_item_in_library(
                     album_artist.item_id,

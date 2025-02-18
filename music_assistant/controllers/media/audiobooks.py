@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from music_assistant.models.music_provider import MusicProvider
 
 
-class AudiobooksController(MediaControllerBase[Audiobook, Audiobook]):
+class AudiobooksController(MediaControllerBase[Audiobook]):
     """Controller managing MediaItems of type Audiobook."""
 
     db_table = DB_TABLE_AUDIOBOOKS

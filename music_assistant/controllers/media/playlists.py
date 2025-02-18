@@ -22,7 +22,7 @@ from music_assistant.models.music_provider import MusicProvider
 from .base import MediaControllerBase
 
 
-class PlaylistController(MediaControllerBase[Playlist, Playlist]):
+class PlaylistController(MediaControllerBase[Playlist]):
     """Controller managing MediaItems of type Playlist."""
 
     db_table = DB_TABLE_PLAYLISTS

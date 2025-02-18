@@ -21,7 +21,6 @@ from music_assistant_models.media_items import (
     Album,
     ItemMapping,
     MediaItemType,
-    MediaItemTypeOrItemMapping,
     ProviderMapping,
     SearchResults,
     Track,
@@ -36,9 +35,9 @@ if TYPE_CHECKING:
 
     from music_assistant import MusicAssistant
 
-MediaItemTypeBound = MediaItemTypeOrItemMapping
+
 ItemCls = TypeVar("ItemCls", bound="MediaItemType")
-LibraryUpdate = TypeVar("LibraryUpdate", bound="MediaItemTypeBound")
+
 
 JSON_KEYS = (
     "artists",
@@ -74,7 +73,7 @@ SORT_KEYS = {
 }
 
 
-class MediaControllerBase(Generic[ItemCls, LibraryUpdate], metaclass=ABCMeta):
+class MediaControllerBase(Generic[ItemCls], metaclass=ABCMeta):
     """Base model for controller managing a MediaType."""
 
     media_type: MediaType
@@ -161,7 +160,7 @@ class MediaControllerBase(Generic[ItemCls, LibraryUpdate], metaclass=ABCMeta):
         return None
 
     async def update_item_in_library(
-        self, item_id: str | int, update: LibraryUpdate, overwrite: bool = False
+        self, item_id: str | int, update: ItemCls, overwrite: bool = False
     ) -> ItemCls:
         """Update existing library record in the library database."""
         await self._update_library_item(item_id, update, overwrite=overwrite)
@@ -805,9 +804,17 @@ class MediaControllerBase(Generic[ItemCls, LibraryUpdate], metaclass=ABCMeta):
             db_row_dict["album"] = track_album
             db_row_dict["disc_number"] = track_album["disc_number"]
             db_row_dict["track_number"] = track_album["track_number"]
-            # copy album image to itemmapping single image
+            # always prefer album image over track image
             if images := track_album.get("images"):
-                db_row_dict["album"]["image"] = next(
-                    (x for x in images if x["type"] == "thumb"), None
-                )
+                album_thumb = next((x for x in images if x["type"] == "thumb"), None)
+                if album_thumb:
+                    # copy album image to itemmapping single image
+                    db_row_dict["image"] = album_thumb
+                    if db_row_dict["metadata"].get("images"):
+                        db_row_dict["metadata"]["images"] = [
+                            album_thumb,
+                            *db_row_dict["metadata"]["images"],
+                        ]
+                    else:
+                        db_row_dict["metadata"]["images"] = [album_thumb]
         return db_row_dict

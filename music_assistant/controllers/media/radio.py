@@ -14,7 +14,7 @@ from music_assistant.helpers.json import serialize_to_json
 from .base import MediaControllerBase
 
 
-class RadioController(MediaControllerBase[Radio, Radio]):
+class RadioController(MediaControllerBase[Radio]):
     """Controller managing MediaItems of type Radio."""
 
     db_table = DB_TABLE_RADIOS

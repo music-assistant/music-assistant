@@ -142,14 +142,14 @@ class PlayerQueuesController(CoreController):
         values: dict[str, ConfigValueType] | None = None,
     ) -> tuple[ConfigEntry, ...]:
         """Return all Config Entries for this core module (if any)."""
-        enqueue_options = tuple(ConfigValueOption(x.name, x.value) for x in QueueOption)
+        enqueue_options = [ConfigValueOption(x.name, x.value) for x in QueueOption]
         return (
             ConfigEntry(
                 key=CONF_DEFAULT_ENQUEUE_SELECT_ARTIST,
                 type=ConfigEntryType.STRING,
                 default_value=ENQUEUE_SELECT_ARTIST_DEFAULT_VALUE,
                 label="Items to select when you play a (in-library) artist.",
-                options=(
+                options=[
                     ConfigValueOption(
                         title="Only in-library tracks",
                         value="library_tracks",
@@ -166,14 +166,14 @@ class PlayerQueuesController(CoreController):
                         title="All tracks from all albums from (all) streaming provider(s)",
                         value="all_album_tracks",
                     ),
-                ),
+                ],
             ),
             ConfigEntry(
                 key=CONF_DEFAULT_ENQUEUE_SELECT_ALBUM,
                 type=ConfigEntryType.STRING,
                 default_value=ENQUEUE_SELECT_ALBUM_DEFAULT_VALUE,
                 label="Items to select when you play a (in-library) album.",
-                options=(
+                options=[
                     ConfigValueOption(
                         title="Only in-library tracks",
                         value="library_tracks",
@@ -182,7 +182,7 @@ class PlayerQueuesController(CoreController):
                         title="All tracks for album on (streaming) provider",
                         value="all_tracks",
                     ),
-                ),
+                ],
             ),
             ConfigEntry(
                 key=CONF_DEFAULT_ENQUEUE_OPTION_ARTIST,
@@ -463,7 +463,7 @@ class PlayerQueuesController(CoreController):
 
         # load the items into the queue
         if queue.state in (PlayerState.PLAYING, PlayerState.PAUSED):
-            cur_index = queue.index_in_buffer or 0
+            cur_index = queue.index_in_buffer or queue.current_index or 0
         else:
             cur_index = queue.current_index or 0
         insert_at_index = cur_index + 1 if self._queue_items.get(queue_id) else 0
@@ -1090,6 +1090,7 @@ class PlayerQueuesController(CoreController):
         - keep_remaining: keep the remaining items after the insert
         - shuffle: (re)shuffle the items after insert index
         """
+        queue = self._queues[queue_id]
         prev_items = self._queue_items[queue_id][:insert_at_index] if keep_played else []
         next_items = queue_items
 
@@ -1104,6 +1105,23 @@ class PlayerQueuesController(CoreController):
         if shuffle:
             next_items = random.sample(next_items, len(next_items))
         self.update_items(queue_id, prev_items + next_items)
+
+        # if the next index changed we need to tell the player to enqueue the (new) next item
+        index_in_buffer = queue.index_in_buffer or queue.current_index or 0
+        if (
+            insert_at_index == (index_in_buffer + 1)
+            and queue.state != PlayerState.IDLE
+            and not queue.flow_mode
+            and (current_item_in_buffer := self.get_item(queue_id, index_in_buffer))
+        ):
+            task_id = f"enqueue_next_item_{queue_id}"
+            self.mass.call_later(
+                1,
+                self._enqueue_next_item,
+                queue_id,
+                current_item_in_buffer.queue_item_id,
+                task_id=task_id,
+            )
 
     def update_items(self, queue_id: str, queue_items: list[QueueItem]) -> None:
         """Update the existing queue items, mostly caused by reordering."""
