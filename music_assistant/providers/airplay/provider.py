@@ -17,7 +17,6 @@ from music_assistant_models.enums import (
     PlayerState,
     PlayerType,
     ProviderFeature,
-    StreamType,
 )
 from music_assistant_models.media_items import AudioFormat
 from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
@@ -39,7 +38,6 @@ from music_assistant.helpers.datetime import utc
 from music_assistant.helpers.ffmpeg import get_ffmpeg_stream
 from music_assistant.helpers.util import TaskManager, get_ip_pton, lock, select_free_port
 from music_assistant.models.player_provider import PlayerProvider
-from music_assistant.models.plugin import PluginProvider
 from music_assistant.providers.airplay.raop import RaopStreamSession
 from music_assistant.providers.player_group import PlayerGroupProvider
 
@@ -113,7 +111,9 @@ PLAYER_CONFIG_ENTRIES = (
         range=(500, 3000),
     ),
     # airplay has fixed sample rate/bit depth so make this config entry static and hidden
-    create_sample_rates_config_entry(44100, 16, 44100, 16, True),
+    create_sample_rates_config_entry(
+        supported_sample_rates=[44100], supported_bit_depths=[16], hidden=True
+    ),
     ConfigEntry(
         key=CONF_IGNORE_VOLUME,
         type=ConfigEntryType.BOOLEAN,
@@ -296,12 +296,13 @@ class AirplayProvider(PlayerProvider):
         player = self.mass.players.get(player_id)
         if not player:
             return
-        # set the active source for the player to the media queue
-        # this accounts for syncgroups and linked players (e.g. sonos)
-        player.active_source = media.queue_id
         if player.synced_to:
             # should not happen, but just in case
             raise RuntimeError("Player is synced")
+        # set the active source for the player to the media queue
+        # this accounts for syncgroups and linked players (e.g. sonos)
+        player.active_source = media.queue_id
+        player.current_media = media
         # always stop existing stream first
         async with TaskManager(self.mass) as tg:
             for airplay_player in self._get_sync_clients(player_id):
@@ -318,16 +319,12 @@ class AirplayProvider(PlayerProvider):
             )
         elif media.media_type == MediaType.PLUGIN_SOURCE:
             # special case: plugin source stream
-            # consume the stream directly, so we can skip one step in between
-            assert media.custom_data is not None  # for type checking
-            provider = cast(PluginProvider, self.mass.get_provider(media.custom_data["provider"]))
-            plugin_source = provider.get_source()
-            assert plugin_source.audio_format is not None  # for type checking
-            input_format = plugin_source.audio_format
-            audio_source = (
-                provider.get_audio_stream(player_id)  # type: ignore[assignment]
-                if plugin_source.stream_type == StreamType.CUSTOM
-                else cast(str, plugin_source.path)
+            input_format = AIRPLAY_PCM_FORMAT
+            assert media.custom_data
+            audio_source = self.mass.streams.get_plugin_source_stream(
+                plugin_source_id=media.custom_data["provider"],
+                output_format=AIRPLAY_PCM_FORMAT,
+                player_id=player_id,
             )
         elif media.queue_id and media.queue_id.startswith("ugp_"):
             # special case: UGP stream

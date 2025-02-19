@@ -28,13 +28,12 @@ from music_assistant_models.errors import PlayerUnavailableError
 from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 
 from music_assistant.constants import (
-    CONF_ENFORCE_MP3,
     CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_CROSSFADE_FLOW_MODE_REQUIRED,
     CONF_ENTRY_ENABLE_ICY_METADATA,
-    CONF_ENTRY_ENFORCE_MP3,
     CONF_ENTRY_FLOW_MODE_DEFAULT_ENABLED,
     CONF_ENTRY_HTTP_PROFILE,
+    CONF_ENTRY_OUTPUT_CODEC,
     CONF_PLAYERS,
     VERBOSE_LOG_LEVEL,
     create_sample_rates_config_entry,
@@ -60,13 +59,13 @@ if TYPE_CHECKING:
 PLAYER_CONFIG_ENTRIES = (
     CONF_ENTRY_CROSSFADE_FLOW_MODE_REQUIRED,
     CONF_ENTRY_CROSSFADE_DURATION,
-    CONF_ENTRY_ENFORCE_MP3,
+    CONF_ENTRY_OUTPUT_CODEC,
     CONF_ENTRY_HTTP_PROFILE,
     CONF_ENTRY_ENABLE_ICY_METADATA,
     # enable flow mode by default because
     # most dlna players do not support enqueueing
     CONF_ENTRY_FLOW_MODE_DEFAULT_ENABLED,
-    create_sample_rates_config_entry(192000, 24, 96000, 24),
+    create_sample_rates_config_entry(max_sample_rate=192000, max_bit_depth=24),
 )
 
 
@@ -294,8 +293,6 @@ class DLNAPlayerProvider(PlayerProvider):
     @catch_request_errors
     async def play_media(self, player_id: str, media: PlayerMedia) -> None:
         """Handle PLAY MEDIA on given player."""
-        if self.mass.config.get_raw_player_config_value(player_id, CONF_ENFORCE_MP3, False):
-            media.uri = media.uri.replace(".flac", ".mp3")
         dlna_player = self.dlnaplayers[player_id]
         # always clear queue (by sending stop) first
         if dlna_player.device.can_stop:
@@ -321,8 +318,6 @@ class DLNAPlayerProvider(PlayerProvider):
     async def enqueue_next_media(self, player_id: str, media: PlayerMedia) -> None:
         """Handle enqueuing of the next queue item on the player."""
         dlna_player = self.dlnaplayers[player_id]
-        if self.mass.config.get_raw_player_config_value(player_id, CONF_ENFORCE_MP3, False):
-            media.uri = media.uri.replace(".flac", ".mp3")
         didl_metadata = create_didl_metadata(media)
         title = media.title or media.uri
         try:

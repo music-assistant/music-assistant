@@ -140,9 +140,8 @@ class RaopStreamSession:
             return
         assert airplay_player.raop_stream
         assert airplay_player.raop_stream.session == self
-        async with self._lock:
-            self._sync_clients.remove(airplay_player)
-            await airplay_player.raop_stream.stop()
+        self._sync_clients.remove(airplay_player)
+        await airplay_player.raop_stream.stop()
         airplay_player.raop_stream = None
 
     async def add_client(self, airplay_player: AirPlayPlayer) -> None:
@@ -296,7 +295,7 @@ class RaopStream:
             await self.send_cli_command("ACTION=STOP")
         self._stopped = True
         with suppress(asyncio.TimeoutError):
-            await self._cliraop_proc.wait_with_timeout(5)
+            await self._cliraop_proc.wait_with_timeout(2)
         if self._stderr_reader_task and not self._stderr_reader_task.done():
             self._stderr_reader_task.cancel()
         if self._cliraop_proc.proc and not self._cliraop_proc.closed:

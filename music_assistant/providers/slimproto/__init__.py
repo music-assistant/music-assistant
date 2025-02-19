@@ -42,15 +42,14 @@ from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 from music_assistant.constants import (
     CONF_CROSSFADE,
     CONF_CROSSFADE_DURATION,
-    CONF_ENFORCE_MP3,
     CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_DEPRECATED_EQ_BASS,
     CONF_ENTRY_DEPRECATED_EQ_MID,
     CONF_ENTRY_DEPRECATED_EQ_TREBLE,
-    CONF_ENTRY_ENFORCE_MP3,
     CONF_ENTRY_HTTP_PROFILE_FORCED_2,
     CONF_ENTRY_OUTPUT_CHANNELS,
+    CONF_ENTRY_OUTPUT_CODEC,
     CONF_ENTRY_SYNC_ADJUST,
     CONF_PORT,
     CONF_SYNC_ADJUST,
@@ -311,12 +310,14 @@ class SlimprotoProvider(PlayerProvider):
                 CONF_ENTRY_DEPRECATED_EQ_TREBLE,
                 CONF_ENTRY_OUTPUT_CHANNELS,
                 CONF_ENTRY_CROSSFADE_DURATION,
-                CONF_ENTRY_ENFORCE_MP3,
+                CONF_ENTRY_OUTPUT_CODEC,
                 CONF_ENTRY_SYNC_ADJUST,
                 CONF_ENTRY_DISPLAY,
                 CONF_ENTRY_VISUALIZATION,
                 CONF_ENTRY_HTTP_PROFILE_FORCED_2,
-                create_sample_rates_config_entry(max_sample_rate, 24, 48000, 24),
+                create_sample_rates_config_entry(
+                    max_sample_rate=max_sample_rate, max_bit_depth=24, safe_max_bit_depth=24
+                ),
             )
         )
 
@@ -423,10 +424,6 @@ class SlimprotoProvider(PlayerProvider):
         async with TaskManager(self.mass) as tg:
             for slimplayer in self._get_sync_clients(player_id):
                 url = f"{base_url}&child_player_id={slimplayer.player_id}"
-                if self.mass.config.get_raw_player_config_value(
-                    slimplayer.player_id, CONF_ENFORCE_MP3, False
-                ):
-                    url = url.replace("flac", "mp3")
                 stream.expected_clients += 1
                 tg.create_task(
                     self._handle_play_url(
@@ -442,15 +439,9 @@ class SlimprotoProvider(PlayerProvider):
         """Handle enqueuing of the next queue item on the player."""
         if not (slimplayer := self.slimproto.get_player(player_id)):
             return
-        url = media.uri
-        if self.mass.config.get_raw_player_config_value(
-            slimplayer.player_id, CONF_ENFORCE_MP3, False
-        ):
-            url = url.replace("flac", "mp3")
-
         await self._handle_play_url(
             slimplayer,
-            url=url,
+            url=media.uri,
             media=media,
             enqueue=True,
             send_flush=False,
