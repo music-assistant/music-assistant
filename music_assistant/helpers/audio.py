@@ -351,7 +351,9 @@ async def get_stream_details(
     streamdetails.prefer_album_loudness = prefer_album_loudness
     player_settings = await mass.config.get_player_config(streamdetails.queue_id)
     core_config = await mass.config.get_core_config("streams")
-    streamdetails.target_loudness = player_settings.get_value(CONF_VOLUME_NORMALIZATION_TARGET)
+    streamdetails.target_loudness = float(
+        player_settings.get_value(CONF_VOLUME_NORMALIZATION_TARGET)
+    )
     streamdetails.volume_normalization_mode = _get_normalization_mode(
         core_config, player_settings, streamdetails
     )

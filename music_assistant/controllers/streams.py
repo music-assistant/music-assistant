@@ -9,7 +9,6 @@ the upnp callbacks and json rpc api for slimproto clients.
 from __future__ import annotations
 
 import os
-import time
 import urllib.parse
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
@@ -37,6 +36,7 @@ from music_assistant.constants import (
     CONF_ENTRY_ENABLE_ICY_METADATA,
     CONF_HTTP_PROFILE,
     CONF_OUTPUT_CHANNELS,
+    CONF_OUTPUT_CODEC,
     CONF_PUBLISH_IP,
     CONF_SAMPLE_RATES,
     CONF_VOLUME_NORMALIZATION_FIXED_GAIN_RADIO,
@@ -245,26 +245,24 @@ class StreamsController(CoreController):
         """Cleanup on exit."""
         await self._server.close()
 
-    def resolve_stream_url(
+    async def resolve_stream_url(
         self,
         queue_item: QueueItem,
         flow_mode: bool = False,
-        output_codec: ContentType = ContentType.FLAC,
+        player_id: str | None = None,
     ) -> str:
         """Resolve the stream URL for the given QueueItem."""
+        if not player_id:
+            player_id = queue_item.queue_id
+        output_codec = ContentType.try_parse(
+            await self.mass.config.get_player_config_value(player_id, CONF_OUTPUT_CODEC)
+        )
         fmt = output_codec.value
         # handle raw pcm without exact format specifiers
         if output_codec.is_pcm() and ";" not in fmt:
             fmt += f";codec=pcm;rate={44100};bitrate={16};channels={2}"
-        query_params = {}
         base_path = "flow" if flow_mode else "single"
-        url = f"{self._server.base_url}/{base_path}/{queue_item.queue_id}/{queue_item.queue_item_id}.{fmt}"  # noqa: E501
-        # we add a timestamp as basic checksum
-        # most importantly this is to invalidate any caches
-        # but also to handle edge cases such as single track repeat
-        query_params["ts"] = str(int(time.time()))
-        url += "?" + urllib.parse.urlencode(query_params)
-        return url
+        return f"{self._server.base_url}/{base_path}/{queue_item.queue_id}/{queue_item.queue_item_id}.{fmt}"  # noqa: E501
 
     async def serve_queue_item_stream(self, request: web.Request) -> web.Response:
         """Stream single queueitem audio to a player."""
@@ -880,15 +878,18 @@ class StreamsController(CoreController):
         )
         chunk_size = int(get_chunksize(output_format, 1) / 10)
         player.active_source = plugin_source_id
-        async for chunk in get_ffmpeg_stream(
-            audio_input=audio_input,
-            input_format=plugin_source.audio_format,
-            output_format=output_format,
-            chunk_size=chunk_size,
-            filter_params=player_filter_params,
-            extra_input_args=["-re"],
-        ):
-            yield chunk
+        try:
+            async for chunk in get_ffmpeg_stream(
+                audio_input=audio_input,
+                input_format=plugin_source.audio_format,
+                output_format=output_format,
+                chunk_size=chunk_size,
+                filter_params=player_filter_params,
+                extra_input_args=["-re"],
+            ):
+                yield chunk
+        finally:
+            player.active_source = player.player_id
 
     async def get_queue_item_stream(
         self,
@@ -1015,33 +1016,25 @@ class StreamsController(CoreController):
         supported_bit_depths: tuple[int] = tuple(int(x[1]) for x in supported_rates_conf)
 
         player_max_bit_depth = max(supported_bit_depths)
-        if content_type.is_pcm() or content_type == ContentType.WAV:
-            # parse pcm details from format string
-            output_sample_rate, output_bit_depth, output_channels = parse_pcm_info(
-                output_format_str
-            )
-            if content_type == ContentType.PCM:
-                # resolve generic pcm type
-                content_type = ContentType.from_bit_depth(output_bit_depth)
+        if default_sample_rate in supported_sample_rates:
+            output_sample_rate = default_sample_rate
         else:
-            if default_sample_rate in supported_sample_rates:
-                output_sample_rate = default_sample_rate
-            else:
-                output_sample_rate = max(supported_sample_rates)
-            output_bit_depth = min(default_bit_depth, player_max_bit_depth)
-            output_channels_str = self.mass.config.get_raw_player_config_value(
-                player.player_id, CONF_OUTPUT_CHANNELS, "stereo"
-            )
-            output_channels = 1 if output_channels_str != "stereo" else 2
+            output_sample_rate = max(supported_sample_rates)
+        output_bit_depth = min(default_bit_depth, player_max_bit_depth)
+        output_channels_str = self.mass.config.get_raw_player_config_value(
+            player.player_id, CONF_OUTPUT_CHANNELS, "stereo"
+        )
+        output_channels = 1 if output_channels_str != "stereo" else 2
         if not content_type.is_lossless():
             output_bit_depth = 16
             output_sample_rate = min(48000, output_sample_rate)
+        if output_format_str == "pcm":
+            content_type = ContentType.from_bit_depth(output_bit_depth)
         return AudioFormat(
             content_type=content_type,
             sample_rate=output_sample_rate,
             bit_depth=output_bit_depth,
             channels=output_channels,
-            output_format_str=output_format_str,
         )
 
     async def _select_flow_format(

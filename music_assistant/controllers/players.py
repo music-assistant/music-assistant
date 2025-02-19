@@ -722,10 +722,12 @@ class PlayerController(CoreController):
         # check if player is already playing and source is different
         # in that case we need to stop the player first
         prev_source = player.active_source
-        if prev_source and source != prev_source and player.state != PlayerState.IDLE:
-            await self.cmd_stop(player_id)
-            await asyncio.sleep(0.5)  # small delay to allow stop to process
+        if prev_source and source != prev_source:
+            if player.state != PlayerState.IDLE:
+                await self.cmd_stop(player_id)
+                await asyncio.sleep(0.5)  # small delay to allow stop to process
             player.active_source = None
+            player.current_media = None
         # check if source is a pluginsource
         # in that case the source id is the lookup_key of the plugin provider
         if plugin_prov := self.mass.get_provider(source):
@@ -735,6 +737,7 @@ class PlayerController(CoreController):
         # this can be used to restore the queue after a source switch
         if mass_queue := self.mass.player_queues.get(source):
             player.active_source = mass_queue.queue_id
+            self.update(player_id)
             return
         # basic check if player supports source selection
         if PlayerFeature.SELECT_SOURCE not in player.supported_features:
@@ -1402,7 +1405,9 @@ class PlayerController(CoreController):
         # if player has plugin source active return that
         for plugin_source in self._get_plugin_sources():
             if player.active_source == plugin_source.id or (
-                player.current_media and plugin_source.id == player.current_media.queue_id
+                player.current_media
+                and plugin_source.id == player.current_media.queue_id
+                and player.state in (PlayerState.PLAYING, PlayerState.PAUSED)
             ):
                 # copy/set current media if available
                 if plugin_source.metadata:

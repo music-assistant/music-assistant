@@ -16,9 +16,9 @@ from zeroconf import ServiceStateChange
 from music_assistant.constants import (
     CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_ENABLE_ICY_METADATA,
-    CONF_ENTRY_ENFORCE_MP3,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
     CONF_ENTRY_HTTP_PROFILE_FORCED_2,
+    CONF_ENTRY_OUTPUT_CODEC,
     VERBOSE_LOG_LEVEL,
 )
 from music_assistant.helpers.util import (
@@ -315,7 +315,7 @@ class BluesoundPlayerProvider(PlayerProvider):
             *base_entries,
             CONF_ENTRY_HTTP_PROFILE_FORCED_2,
             CONF_ENTRY_CROSSFADE,
-            CONF_ENTRY_ENFORCE_MP3,
+            CONF_ENTRY_OUTPUT_CODEC,
             CONF_ENTRY_FLOW_MODE_ENFORCED,
             CONF_ENTRY_ENABLE_ICY_METADATA,
         )

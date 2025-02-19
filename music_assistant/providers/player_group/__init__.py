@@ -46,7 +46,6 @@ from music_assistant.constants import (
     CONF_CROSSFADE,
     CONF_CROSSFADE_DURATION,
     CONF_ENABLE_ICY_METADATA,
-    CONF_ENFORCE_MP3,
     CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
@@ -55,6 +54,7 @@ from music_assistant.constants import (
     CONF_GROUP_MEMBERS,
     CONF_HTTP_PROFILE,
     CONF_MUTE_CONTROL,
+    CONF_OUTPUT_CODEC,
     CONF_POWER_CONTROL,
     CONF_SAMPLE_RATES,
     CONF_VOLUME_CONTROL,
@@ -109,7 +109,9 @@ CONF_ENTRY_GROUP_MEMBERS = ConfigEntry(
     description="Select all players you want to be part of this group",
     required=False,  # otherwise dynamic members won't work (which allows empty members list)
 )
-CONF_ENTRY_SAMPLE_RATES_UGP = create_sample_rates_config_entry(44100, 16, 44100, 16, True)
+CONF_ENTRY_SAMPLE_RATES_UGP = create_sample_rates_config_entry(
+    max_sample_rate=96000, max_bit_depth=24, hidden=True
+)
 CONFIG_ENTRY_UGP_NOTE = ConfigEntry(
     key="ugp_note",
     type=ConfigEntryType.LABEL,
@@ -299,7 +301,7 @@ class PlayerGroupProvider(PlayerProvider):
             CONF_ENABLE_ICY_METADATA,
             CONF_CROSSFADE,
             CONF_CROSSFADE_DURATION,
-            CONF_ENFORCE_MP3,
+            CONF_OUTPUT_CODEC,
             CONF_FLOW_MODE,
             CONF_SAMPLE_RATES,
         )
@@ -564,7 +566,8 @@ class PlayerGroupProvider(PlayerProvider):
         """
         if group_player := self.mass.players.get(player_id):
             self._update_attributes(group_player)
-            await self._ungroup_subgroups_if_found(group_player)
+            if group_player.powered:
+                await self._ungroup_subgroups_if_found(group_player)
 
     async def create_group(
         self, group_type: str, name: str, members: list[str], dynamic: bool = False
@@ -705,6 +708,7 @@ class PlayerGroupProvider(PlayerProvider):
             # this is the sync leader, unsync all its childs!
             # NOTE that some players/providers might support this in a less intrusive way
             # but for now we just ungroup all childs to keep thinngs universal
+            self.logger.info("Detected ungroup of sync leader, ungrouping all childs")
             async with TaskManager(self.mass) as tg:
                 for sync_child_id in child_player.group_childs:
                     if sync_child_id == child_player.player_id:
@@ -717,6 +721,7 @@ class PlayerGroupProvider(PlayerProvider):
 
         if is_sync_leader and was_playing and group_player.powered:
             # ungrouping the sync leader stops the group so we need to resume
+            self.logger.info("Resuming group after ungrouping of sync leader")
             task_id = f"resync_group_{group_player.player_id}"
             self.mass.call_later(
                 2, self.mass.players.cmd_play(group_player.player_id), task_id=task_id
@@ -922,6 +927,8 @@ class PlayerGroupProvider(PlayerProvider):
         # Verify that no player is part of a separate group
         for child_player_id in player.group_childs:
             child_player = self.mass.players.get(child_player_id)
+            if child_player is None:
+                continue
             if PlayerFeature.SET_MEMBERS not in child_player.supported_features:
                 continue
             if child_player.group_childs:

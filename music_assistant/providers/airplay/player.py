@@ -33,13 +33,12 @@ class AirPlayPlayer:
 
     async def cmd_stop(self, update_state: bool = True) -> None:
         """Send STOP command to player."""
-        async with self._lock:
-            if self.raop_stream:
-                # forward stop to the entire stream session
-                await self.raop_stream.session.stop()
-            if update_state and (mass_player := self.mass.players.get(self.player_id)):
-                mass_player.state = PlayerState.IDLE
-                self.mass.players.update(mass_player.player_id)
+        if self.raop_stream:
+            # forward stop to the entire stream session
+            await self.raop_stream.session.stop()
+        if update_state and (mass_player := self.mass.players.get(self.player_id)):
+            mass_player.state = PlayerState.IDLE
+            self.mass.players.update(mass_player.player_id)
 
     async def cmd_play(self) -> None:
         """Send PLAY (unpause) command to player."""

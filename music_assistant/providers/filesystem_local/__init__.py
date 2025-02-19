@@ -63,7 +63,12 @@ from music_assistant.helpers.ffmpeg import get_ffmpeg_stream
 from music_assistant.helpers.json import json_loads
 from music_assistant.helpers.playlists import parse_m3u, parse_pls
 from music_assistant.helpers.tags import AudioTags, async_parse_tags, parse_tags, split_items
-from music_assistant.helpers.util import TaskManager, parse_title_and_version, try_parse_int
+from music_assistant.helpers.util import (
+    TaskManager,
+    detect_charset,
+    parse_title_and_version,
+    try_parse_int,
+)
 from music_assistant.models.music_provider import MusicProvider
 
 from .constants import (
@@ -671,8 +676,11 @@ class LocalFileSystemProvider(MusicProvider):
         try:
             # get playlist file contents
             playlist_filename = self.get_absolute_path(prov_playlist_id)
-            async with aiofiles.open(playlist_filename, encoding="utf-8") as _file:
-                playlist_data = await _file.read()
+            async with aiofiles.open(playlist_filename, mode="rb") as _file:
+                playlist_data_raw = await _file.read()
+                encoding = await detect_charset(playlist_data_raw)
+                playlist_data = playlist_data_raw.decode(encoding, errors="replace")
+
             if ext in ("m3u", "m3u8"):
                 playlist_lines = parse_m3u(playlist_data)
             else:

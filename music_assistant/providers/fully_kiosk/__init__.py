@@ -14,11 +14,10 @@ from music_assistant_models.errors import PlayerUnavailableError, SetupFailedErr
 from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 
 from music_assistant.constants import (
-    CONF_ENFORCE_MP3,
     CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_CROSSFADE_DURATION,
-    CONF_ENTRY_ENFORCE_MP3_DEFAULT_ENABLED,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
+    CONF_ENTRY_OUTPUT_CODEC_DEFAULT_MP3,
     CONF_IP_ADDRESS,
     CONF_PASSWORD,
     CONF_PORT,
@@ -160,7 +159,7 @@ class FullyKioskProvider(PlayerProvider):
             CONF_ENTRY_FLOW_MODE_ENFORCED,
             CONF_ENTRY_CROSSFADE,
             CONF_ENTRY_CROSSFADE_DURATION,
-            CONF_ENTRY_ENFORCE_MP3_DEFAULT_ENABLED,
+            CONF_ENTRY_OUTPUT_CODEC_DEFAULT_MP3,
         )
 
     async def cmd_volume_set(self, player_id: str, volume_level: int) -> None:
@@ -190,8 +189,6 @@ class FullyKioskProvider(PlayerProvider):
         """Handle PLAY MEDIA on given player."""
         if not (player := self.mass.players.get(player_id)):
             return
-        if self.mass.config.get_raw_player_config_value(player_id, CONF_ENFORCE_MP3, True):
-            media.uri = media.uri.replace(".flac", ".mp3")
         await self._fully.playSound(media.uri, AUDIOMANAGER_STREAM_MUSIC)
         player.current_media = media
         player.elapsed_time = 0

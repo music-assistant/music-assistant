@@ -799,7 +799,7 @@ class PlayerQueuesController(CoreController):
         async def play_media():
             await self.mass.players.play_media(
                 player_id=queue_id,
-                media=self.player_media_from_queue_item(queue_item, queue.flow_mode),
+                media=await self.player_media_from_queue_item(queue_item, queue.flow_mode),
             )
             await asyncio.sleep(2)
             setattr(queue, "transitioning", False)  # noqa: B010
@@ -1176,10 +1176,12 @@ class PlayerQueuesController(CoreController):
                 return index
         return None
 
-    def player_media_from_queue_item(self, queue_item: QueueItem, flow_mode: bool) -> PlayerMedia:
+    async def player_media_from_queue_item(
+        self, queue_item: QueueItem, flow_mode: bool
+    ) -> PlayerMedia:
         """Parse PlayerMedia from QueueItem."""
         media = PlayerMedia(
-            uri=self.mass.streams.resolve_stream_url(queue_item, flow_mode=flow_mode),
+            uri=await self.mass.streams.resolve_stream_url(queue_item, flow_mode=flow_mode),
             media_type=MediaType.FLOW_STREAM if flow_mode else queue_item.media_type,
             title="Music Assistant" if flow_mode else queue_item.name,
             image_url=MASS_LOGO_ONLINE,
@@ -1425,7 +1427,7 @@ class PlayerQueuesController(CoreController):
             return
         await self.mass.players.enqueue_next_media(
             player_id=queue_id,
-            media=self.player_media_from_queue_item(next_item, False),
+            media=await self.player_media_from_queue_item(next_item, False),
         )
         self.logger.debug(
             "Enqueued next track %s on queue %s",
