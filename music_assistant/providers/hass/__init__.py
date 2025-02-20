@@ -227,8 +227,8 @@ async def _get_player_control_config_entries(hass: HomeAssistantClient) -> tuple
             all_power_entities.append(ConfigValueOption(name, state["entity_id"]))
             all_mute_entities.append(ConfigValueOption(name, state["entity_id"]))
             continue
-        if entity_platform == "input_number":
-            # input_number is suitable for volume control
+        if entity_platform in ("number", "input_number"):
+            # number and input_number are very similar, both are suitable for volume control
             all_volume_entities.append(ConfigValueOption(name, state["entity_id"]))
             continue
 
@@ -445,16 +445,19 @@ class HomeAssistantProvider(PluginProvider):
 
     async def _handle_player_control_volume_set(self, entity_id: str, volume_level: int) -> None:
         """Handle setting volume on the playercontrol."""
-        if entity_id.startswith("media_player."):
+        domain = entity_id.split(".", 1)[0]
+
+        if domain == "media_player":
             await self.hass.call_service(
-                domain="media_player",
+                domain=domain,
                 service="volume_set",
                 service_data={"volume_level": volume_level / 100},
                 target={"entity_id": entity_id},
             )
         else:
+            # The call to `set_value` works for both `number` and `input_number` entities
             await self.hass.call_service(
-                domain="input_number",
+                domain=domain,
                 service="set_value",
                 target={"entity_id": entity_id},
                 service_data={"value": volume_level},
