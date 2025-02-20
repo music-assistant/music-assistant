@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import urllib.parse
 from io import BytesIO
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import aiofiles
+import orjson
 import podcastparser
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueOption
 from music_assistant_models.enums import (
@@ -42,6 +45,7 @@ if TYPE_CHECKING:
 
 
 CONF_LOCALE = "locale"
+CONF_EXPLICIT = "explicit"
 
 
 async def setup(
@@ -65,34 +69,35 @@ async def get_config_entries(
     values: the (intermediate) raw values for config entries sent with the action.
     """
     # ruff: noqa: ARG001
+    json_path = Path(__file__).parent / "itunes_country_codes.json"
+    async with aiofiles.open(json_path) as f:
+        country_codes = orjson.loads(await f.read())
+
+    language_options = [ConfigValueOption(val, key.lower()) for key, val in country_codes.items()]
     return (
-        # copied from audible provider
-        # all country codes here https://github.com/jcoester/iTunes-country-codes
         ConfigEntry(
             key=CONF_LOCALE,
             type=ConfigEntryType.STRING,
             label="Country",
             required=True,
-            options=[
-                ConfigValueOption("US and all other countries not listed", "us"),
-                ConfigValueOption("Canada", "ca"),
-                ConfigValueOption("UK and Ireland", "uk"),
-                ConfigValueOption("Australia and New Zealand", "au"),
-                ConfigValueOption("France, Belgium, Switzerland", "fr"),
-                ConfigValueOption("Germany, Austria, Switzerland", "de"),
-                ConfigValueOption("Japan", "jp"),
-                ConfigValueOption("Italy", "it"),
-                ConfigValueOption("India", "in"),
-                ConfigValueOption("Spain", "es"),
-                ConfigValueOption("Brazil", "br"),
-            ],
+            options=language_options,
             default_value="de",
+        ),
+        ConfigEntry(
+            key=CONF_EXPLICIT,
+            type=ConfigEntryType.BOOLEAN,
+            label="Include explicit results",
+            required=False,
+            description="Whether or not to include explicit content results in search.",
+            default_value=True,
         ),
     )
 
 
 class ITunesPodcastsProvider(MusicProvider):
     """ITunesPodcastsProvider."""
+
+    throttler: ThrottlerManager
 
     @property
     def supported_features(self) -> set[ProviderFeature]:
@@ -127,7 +132,17 @@ class ITunesPodcastsProvider(MusicProvider):
         elif limit > 200:
             limit = 200
         country = str(self.config.get_value(CONF_LOCALE))
-        url = f"https://itunes.apple.com/search?media=podcast&entity=podcast&country={country}&attribute=titleTerm&explicit=Yes&limit={limit}&term={term}"
+        explicit = "Yes" if bool(self.config.get_value(CONF_EXPLICIT)) else "No"
+        params = {
+            "media": "podcast",
+            "entity": "podcast",
+            "country": country,
+            "attribute": "titleTerm",
+            "explicit": explicit,
+            "limit": limit,
+            "term": term,
+        }
+        url = f"https://itunes.apple.com/search?{urllib.parse.urlencode(params)}"
         self.logger.debug(f"Search url: {url}")
         result.podcasts = await self._perform_search(url)
 
@@ -195,6 +210,7 @@ class ITunesPodcastsProvider(MusicProvider):
     async def get_podcast(self, prov_podcast_id: str) -> Podcast:
         """Get podcast."""
         parsed = await self._get_parsed_podcast(prov_podcast_id)
+
         return parse_podcast(
             feed_url=prov_podcast_id,
             parsed_feed=parsed,
