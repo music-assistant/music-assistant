@@ -454,14 +454,15 @@ class HomeAssistantProvider(PluginProvider):
                 service_data={"volume_level": volume_level / 100},
                 target={"entity_id": entity_id},
             )
-        else:
-            # The call to `set_value` works for both `number` and `input_number` entities
-            await self.hass.call_service(
-                domain=domain,
-                service="set_value",
-                target={"entity_id": entity_id},
-                service_data={"value": volume_level},
-            )
+            return
+
+        # At this point, `set_value` will work for both `number` or `input_number`
+        await self.hass.call_service(
+            domain=domain,
+            service="set_value",
+            target={"entity_id": entity_id},
+            service_data={"value": volume_level},
+        )
 
     def _update_control_from_state_msg(self, entity_id: str, state: CompressedState) -> None:
         """Update PlayerControl from state(update) message."""
