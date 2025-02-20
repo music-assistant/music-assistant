@@ -1,0 +1,11 @@
+{
+  "type": "plugin",
+  "domain": "rest",
+  "name": "HTTP REST API",
+  "description": "Expose Music Assistant entities with a REST interface over HTTP",
+  "codeowners": ["@procsiab"],
+  "documentation": "",
+  "multi_instance": false,
+  "builtin": false,
+  "requirements": ["fastapi>=0.95", "uvicorn>=0.34.0"]
+}
