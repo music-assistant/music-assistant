@@ -33,10 +33,11 @@ async def setup(
     return RestApiPluginProvider(mass, manifest, config)
 
 
+# ruff: noqa: ARG001
 async def get_config_entries(
-    _mass: MusicAssistant,
-    _instance_id: str | None = None,
-    _action: str | None = None,
+    mass: MusicAssistant,
+    instance_id: str | None = None,
+    action: str | None = None,
     values: dict[str, ConfigValueType] | None = None,
 ) -> tuple[ConfigEntry, ...]:
     """Return config options required for setting up this provider."""
@@ -124,14 +125,14 @@ The following interactions are implemented
     def register_routes(self) -> None:  # noqa: PLR0915
         """Set up the API endpoint URIs with their methods."""
 
-        @self.rest_router.get("/players", tags=["player"])  # type: ignore[misc]
+        @self.rest_router.get("/players", tags=["player"])
         def list_players() -> list[dict[str, str]]:
             players = self.mass.players.all()
             if len(players) == 0:
                 raise HTTPException(status_code=404, detail="No player was found")
             return [{"player_id": player.player_id, "name": player.name} for player in players]
 
-        @self.rest_router.post("/player/{player_name}/play", tags=["player"])  # type: ignore[misc]
+        @self.rest_router.post("/player/{player_name}/play", tags=["player"])
         async def play(player_name: str) -> dict[str, str]:
             player = self.mass.players.get_by_name(player_name)
             if not player:
@@ -143,7 +144,7 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to play on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute play: {e}") from e
 
-        @self.rest_router.post("/player/{player_name}/pause", tags=["player"])  # type: ignore[misc]
+        @self.rest_router.post("/player/{player_name}/pause", tags=["player"])
         async def pause(player_name: str) -> dict[str, str]:
             player = self.mass.players.get_by_name(player_name)
             if not player:
@@ -155,7 +156,7 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to pause on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute pause: {e}") from e
 
-        @self.rest_router.post("/player/{player_name}/stop", tags=["player"])  # type: ignore[misc]
+        @self.rest_router.post("/player/{player_name}/stop", tags=["player"])
         async def stop(player_name: str) -> dict[str, str]:
             player = self.mass.players.get_by_name(player_name)
             if not player:
@@ -167,7 +168,7 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to stop on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute stop: {e}") from e
 
-        @self.rest_router.post("/player/{player_name}/seek", tags=["player"])  # type: ignore[misc]
+        @self.rest_router.post("/player/{player_name}/seek", tags=["player"])
         async def seek(player_name: str, request: Request) -> dict[str, str]:
             payload = await request.json()
             position = payload.get("position")
@@ -183,7 +184,7 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to seek on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute seek: {e}") from e
 
-        @self.rest_router.post("/player/{player_name}/volume", tags=["player"])  # type: ignore[misc]
+        @self.rest_router.post("/player/{player_name}/volume", tags=["player"])
         async def volume(player_name: str, request: Request) -> dict[str, str]:
             payload = await request.json()
             volume = payload.get("volume")
@@ -202,7 +203,7 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to set volume on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute volume: {e}") from e
 
-        @self.rest_router.post("/player/{player_name}/power", tags=["player"])  # type: ignore[misc]
+        @self.rest_router.post("/player/{player_name}/power", tags=["player"])
         async def power(player_name: str, request: Request) -> dict[str, str]:
             payload = await request.json()
             state = payload.get("state")
@@ -220,7 +221,7 @@ The following interactions are implemented
                 self.logger.exception(f"Failed power on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute power: {e}") from e
 
-        @self.rest_router.post("/queues/{player_name}/play_media", tags=["queues"])  # type: ignore[misc]
+        @self.rest_router.post("/queues/{player_name}/play_media", tags=["queues"])
         async def play_media(player_name: str, request: Request) -> dict[str, str]:
             try:
                 payload = await request.json()
@@ -248,7 +249,7 @@ The following interactions are implemented
                     status_code=500, detail=f"Failed to execute play_media: {e}"
                 ) from e
 
-        @self.rest_router.post("/queues/{player_name}/clear", tags=["queues"])  # type: ignore[misc]
+        @self.rest_router.post("/queues/{player_name}/clear", tags=["queues"])
         def clear(player_name: str) -> dict[str, str]:
             player = self.mass.players.get_by_name(player_name)
             if not player:
@@ -265,7 +266,7 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to clear queue on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute clear: {e}") from e
 
-        @self.rest_router.post("/queues/{player_name}/shuffle", tags=["queues"])  # type: ignore[misc]
+        @self.rest_router.post("/queues/{player_name}/shuffle", tags=["queues"])
         async def shuffle(player_name: str, request: Request) -> dict[str, str]:
             payload = await request.json()
             state = payload.get("state")
