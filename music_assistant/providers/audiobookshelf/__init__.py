@@ -19,7 +19,6 @@ from aioaudiobookshelf.schema.library import (
     LibraryItemExpanded,
     LibraryItemExpandedBook,
     LibraryItemExpandedPodcast,
-    LibraryItemMinifiedPodcast,
 )
 from aioaudiobookshelf.schema.library import LibraryMediaType as AbsLibraryMediaType
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueType, ProviderConfig
@@ -219,7 +218,8 @@ class Audiobookshelf(MusicProvider):
     async def get_library_podcasts(self) -> AsyncGenerator[Podcast, None]:
         """Retrieve library/subscribed podcasts from the provider.
 
-        Minified podcast information is enough.
+        Minified podcast information is enough, but we take the full information
+        and rely on cache afterwards.
         """
         for pod_lib_id in self.libraries.podcasts:
             async for response in self._client.get_library_items(library_id=pod_lib_id):
@@ -228,10 +228,12 @@ class Audiobookshelf(MusicProvider):
                 podcast_ids = [x.id_ for x in response.results]
                 # store uuids
                 self.libraries.podcasts[pod_lib_id].item_ids.update(podcast_ids)
-                for podcast_minified in response.results:
-                    assert isinstance(podcast_minified, LibraryItemMinifiedPodcast)
+                podcasts_expanded = await self._client.get_library_item_batch_podcast(
+                    item_ids=podcast_ids
+                )
+                for podcast_expanded in podcasts_expanded:
                     mass_podcast = parse_podcast(
-                        abs_podcast=podcast_minified,
+                        abs_podcast=podcast_expanded,
                         lookup_key=self.lookup_key,
                         domain=self.domain,
                         instance_id=self.instance_id,
@@ -258,9 +260,13 @@ class Audiobookshelf(MusicProvider):
     async def get_podcast(self, prov_podcast_id: str) -> Podcast:
         """Get single podcast.
 
-        Basis information is sufficient.
+        Basis information,
+        abs_podcast = await self._client.get_library_item_podcast(
+            podcast_id=prov_podcast_id, expanded=False
+        ),
+        would be sufficient, but we rely on cache.
         """
-        abs_podcast = await self._client.get_library_item_podcast(podcast_id=prov_podcast_id)
+        abs_podcast = await self._get_abs_expanded_podcast(prov_podcast_id=prov_podcast_id)
         return parse_podcast(
             abs_podcast=abs_podcast,
             lookup_key=self.lookup_key,
