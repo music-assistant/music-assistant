@@ -27,7 +27,7 @@ from music_assistant_models.media_items import (
 )
 
 from music_assistant.constants import DB_TABLE_PLAYLOG, DB_TABLE_PROVIDER_MAPPINGS, MASS_LOGGER_NAME
-from music_assistant.helpers.compare import compare_media_item
+from music_assistant.helpers.compare import compare_media_item, create_safe_string
 from music_assistant.helpers.json import json_loads, serialize_to_json
 
 if TYPE_CHECKING:
@@ -50,10 +50,13 @@ JSON_KEYS = (
 )
 
 SORT_KEYS = {
-    "name": "name COLLATE NOCASE ASC",
-    "name_desc": "name COLLATE NOCASE DESC",
-    "sort_name": "sort_name COLLATE NOCASE ASC",
-    "sort_name_desc": "sort_name COLLATE NOCASE DESC",
+    # sqlite has no builtin support for natural sorting
+    # so we have use an additional column for this
+    # this also improves searching and sorting performance
+    "name": "search_name ASC",
+    "name_desc": "search_name DESC",
+    "sort_name": "search_sort_name ASC",
+    "sort_name_desc": "search_sort_name DESC",
     "timestamp_added": "timestamp_added ASC",
     "timestamp_added_desc": "timestamp_added DESC",
     "timestamp_modified": "timestamp_modified ASC",
@@ -66,8 +69,8 @@ SORT_KEYS = {
     "year_desc": "year DESC",
     "position": "position ASC",
     "position_desc": "position DESC",
-    "artist_name": "artists.name COLLATE NOCASE ASC",
-    "artist_name_desc": "artists.name COLLATE NOCASE DESC",
+    "artist_name": "artists.search_name ASC",
+    "artist_name_desc": "artists.search_name DESC",
     "random": "RANDOM()",
     "random_play_count": "RANDOM(), play_count ASC",
 }
@@ -717,8 +720,9 @@ class MediaControllerBase(Generic[ItemCls], metaclass=ABCMeta):
             )
         # handle search
         if search:
+            search = create_safe_string(search, True, True)
             query_params["search"] = f"%{search}%"
-            query_parts.append(f"{self.db_table}.name LIKE :search")
+            query_parts.append(f"{self.db_table}.search_name LIKE :search")
         # handle favorite filter
         if favorite is not None:
             query_parts.append(f"{self.db_table}.favorite = :favorite")

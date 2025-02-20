@@ -1036,6 +1036,9 @@ class PlayerQueuesController(CoreController):
                 queue_item.media_item.album = library_album
             else:
                 queue_item.media_item.album = album
+            # prefer album image over track image
+            if queue_item.media_item.album and queue_item.media_item.album.image:
+                queue_item.media_item.metadata.images = [queue_item.media_item.album.image]
         # Fetch the streamdetails, which could raise in case of an unplayable item.
         # For example, YT Music returns Radio Items that are not playable.
         queue_item.streamdetails = await get_stream_details(

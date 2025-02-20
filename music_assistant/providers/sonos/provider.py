@@ -17,7 +17,7 @@ from aiohttp.client_exceptions import ClientError
 from aiosonos.api.models import SonosCapability
 from aiosonos.utils import get_discovery_info
 from music_assistant_models.config_entries import ConfigEntry, PlayerConfig
-from music_assistant_models.enums import ConfigEntryType, PlayerState, ProviderFeature
+from music_assistant_models.enums import ConfigEntryType, MediaType, PlayerState, ProviderFeature
 from music_assistant_models.errors import PlayerCommandFailed
 from music_assistant_models.player import DeviceInfo, PlayerMedia
 from zeroconf import ServiceStateChange
@@ -331,7 +331,7 @@ class SonosPlayerProvider(PlayerProvider):
             await sonos_player.client.player.group.play_stream_url(media.uri, None)
             return
 
-        if media.queue_id:
+        if media.queue_id and media.media_type != MediaType.PLUGIN_SOURCE:
             # create a sonos cloud queue and load it
             cloud_queue_url = f"{self.mass.streams.base_url}/sonos_queue/v2.3/"
             await sonos_player.client.player.group.play_cloud_queue(

@@ -92,7 +92,7 @@ def filename_from_string(string: str) -> str:
 def try_parse_int(possible_int: Any, default: int | None = 0) -> int | None:
     """Try to parse an int."""
     try:
-        return int(possible_int)
+        return int(float(possible_int))
     except (TypeError, ValueError):
         return default
 

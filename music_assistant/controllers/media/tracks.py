@@ -33,6 +33,7 @@ from music_assistant.helpers.compare import (
     compare_artists,
     compare_media_item,
     compare_track,
+    create_safe_string,
     loose_compare_strings,
 )
 from music_assistant.helpers.json import serialize_to_json
@@ -171,13 +172,15 @@ class TracksController(MediaControllerBase[Track]):
             # handle combined artist + title search
             artist_str, title_str = search.split(" - ", 1)
             search = None
-            extra_query_parts.append("tracks.name LIKE :search_title")
+            title_str = create_safe_string(title_str, True, True)
+            artist_str = create_safe_string(artist_str, True, True)
+            extra_query_parts.append("tracks.search_name LIKE :search_title")
             extra_query_params["search_title"] = f"%{title_str}%"
             # use join with artists table to filter on artist name
             extra_join_parts.append(
                 "JOIN track_artists ON track_artists.track_id = tracks.item_id "
                 "JOIN artists ON artists.item_id = track_artists.artist_id "
-                "AND artists.name LIKE :search_artist"
+                "AND artists.search_name LIKE :search_artist"
             )
             extra_query_params["search_artist"] = f"%{artist_str}%"
         result = await self._get_library_items_by_query(
@@ -193,12 +196,13 @@ class TracksController(MediaControllerBase[Track]):
         )
         if search and len(result) < 25 and not offset:
             # append artist items to result
+            artist_search_str = create_safe_string(search, True, True)
             extra_join_parts.append(
                 "JOIN track_artists ON track_artists.track_id = tracks.item_id "
                 "JOIN artists ON artists.item_id = track_artists.artist_id "
-                "AND artists.name LIKE :search_artist"
+                "AND artists.search_name LIKE :search_artist"
             )
-            extra_query_params["search_artist"] = f"%{search}%"
+            extra_query_params["search_artist"] = f"%{artist_search_str}%"
             return result + await self._get_library_items_by_query(
                 favorite=favorite,
                 search=None,
@@ -442,6 +446,8 @@ class TracksController(MediaControllerBase[Track]):
                 "favorite": item.favorite,
                 "external_ids": serialize_to_json(item.external_ids),
                 "metadata": serialize_to_json(item.metadata),
+                "search_name": create_safe_string(item.name, True, True),
+                "search_sort_name": create_safe_string(item.sort_name, True, True),
             },
         )
         # update/set provider_mappings table
@@ -467,20 +473,22 @@ class TracksController(MediaControllerBase[Track]):
         cur_item = await self.get_library_item(db_id)
         metadata = update.metadata if overwrite else cur_item.metadata.update(update.metadata)
         cur_item.external_ids.update(update.external_ids)
+        name = update.name if overwrite else cur_item.name
+        sort_name = update.sort_name if overwrite else cur_item.sort_name or update.sort_name
         await self.mass.music.database.update(
             self.db_table,
             {"item_id": db_id},
             {
-                "name": update.name if overwrite else cur_item.name,
-                "sort_name": update.sort_name
-                if overwrite
-                else cur_item.sort_name or update.sort_name,
+                "name": name,
+                "sort_name": sort_name,
                 "version": update.version if overwrite else cur_item.version or update.version,
                 "duration": update.duration if overwrite else cur_item.duration or update.duration,
                 "metadata": serialize_to_json(metadata),
                 "external_ids": serialize_to_json(
                     update.external_ids if overwrite else cur_item.external_ids
                 ),
+                "search_name": create_safe_string(name, True, True),
+                "search_sort_name": create_safe_string(sort_name, True, True),
             },
         )
         # update/set provider_mappings table
