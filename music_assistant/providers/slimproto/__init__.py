@@ -476,9 +476,9 @@ class SlimprotoProvider(PlayerProvider):
             "queue_id": media.queue_id,
             "queue_item_id": media.queue_item_id,
         }
-        queue = self.mass.player_queues.get(media.queue_id or player_id)
-        slimplayer.extra_data["playlist repeat"] = REPEATMODE_MAP[queue.repeat_mode]
-        slimplayer.extra_data["playlist shuffle"] = int(queue.shuffle_enabled)
+        if queue := self.mass.player_queues.get(media.queue_id):
+            slimplayer.extra_data["playlist repeat"] = REPEATMODE_MAP[queue.repeat_mode]
+            slimplayer.extra_data["playlist shuffle"] = int(queue.shuffle_enabled)
         await slimplayer.play_url(
             url=url,
             mime_type=f"audio/{url.split('.')[-1].split('?')[0]}",
@@ -496,7 +496,7 @@ class SlimprotoProvider(PlayerProvider):
         # immediately set this track as the next
         # this prevents race conditions with super short audio clips (on single repeat)
         # https://github.com/music-assistant/hass-music-assistant/issues/2059
-        if queue.repeat_mode == RepeatMode.ONE:
+        if queue and queue.repeat_mode == RepeatMode.ONE:
             self.mass.call_later(
                 0.2,
                 slimplayer.play_url(

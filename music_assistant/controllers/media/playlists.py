@@ -15,6 +15,7 @@ from music_assistant_models.errors import (
 from music_assistant_models.media_items import Playlist, Track
 
 from music_assistant.constants import DB_TABLE_PLAYLISTS
+from music_assistant.helpers.compare import create_safe_string
 from music_assistant.helpers.json import serialize_to_json
 from music_assistant.helpers.uri import create_uri, parse_uri
 from music_assistant.models.music_provider import MusicProvider
@@ -291,6 +292,8 @@ class PlaylistController(MediaControllerBase[Playlist]):
                 "metadata": serialize_to_json(item.metadata),
                 "external_ids": serialize_to_json(item.external_ids),
                 "cache_checksum": item.cache_checksum,
+                "search_name": create_safe_string(item.name, True, True),
+                "search_sort_name": create_safe_string(item.sort_name, True, True),
             },
         )
         # update/set provider_mappings table
@@ -306,15 +309,15 @@ class PlaylistController(MediaControllerBase[Playlist]):
         cur_item = await self.get_library_item(db_id)
         metadata = update.metadata if overwrite else cur_item.metadata.update(update.metadata)
         cur_item.external_ids.update(update.external_ids)
+        name = update.name if overwrite else cur_item.name
+        sort_name = update.sort_name if overwrite else cur_item.sort_name or update.sort_name
         await self.mass.music.database.update(
             self.db_table,
             {"item_id": db_id},
             {
                 # always prefer name/owner from updated item here
-                "name": update.name,
-                "sort_name": update.sort_name
-                if (overwrite or update.name != cur_item.name)
-                else cur_item.sort_name,
+                "name": name,
+                "sort_name": sort_name,
                 "owner": update.owner or cur_item.owner,
                 "is_editable": update.is_editable,
                 "metadata": serialize_to_json(metadata),
@@ -322,6 +325,8 @@ class PlaylistController(MediaControllerBase[Playlist]):
                     update.external_ids if overwrite else cur_item.external_ids
                 ),
                 "cache_checksum": update.cache_checksum or cur_item.cache_checksum,
+                "search_name": create_safe_string(name, True, True),
+                "search_sort_name": create_safe_string(sort_name, True, True),
             },
         )
         # update/set provider_mappings table

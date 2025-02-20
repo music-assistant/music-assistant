@@ -8,7 +8,7 @@ from music_assistant_models.enums import MediaType
 from music_assistant_models.media_items import Radio, Track
 
 from music_assistant.constants import DB_TABLE_RADIOS
-from music_assistant.helpers.compare import loose_compare_strings
+from music_assistant.helpers.compare import create_safe_string, loose_compare_strings
 from music_assistant.helpers.json import serialize_to_json
 
 from .base import MediaControllerBase
@@ -64,6 +64,8 @@ class RadioController(MediaControllerBase[Radio]):
                 "favorite": item.favorite,
                 "metadata": serialize_to_json(item.metadata),
                 "external_ids": serialize_to_json(item.external_ids),
+                "search_name": create_safe_string(item.name, True, True),
+                "search_sort_name": create_safe_string(item.sort_name, True, True),
             },
         )
         # update/set provider_mappings table
@@ -80,19 +82,21 @@ class RadioController(MediaControllerBase[Radio]):
         metadata = update.metadata if overwrite else cur_item.metadata.update(update.metadata)
         cur_item.external_ids.update(update.external_ids)
         match = {"item_id": db_id}
+        name = update.name if overwrite else cur_item.name
+        sort_name = update.sort_name if overwrite else cur_item.sort_name or update.sort_name
         await self.mass.music.database.update(
             self.db_table,
             match,
             {
                 # always prefer name from updated item here
-                "name": update.name if overwrite else cur_item.name,
-                "sort_name": update.sort_name
-                if overwrite
-                else cur_item.sort_name or update.sort_name,
+                "name": name,
+                "sort_name": sort_name,
                 "metadata": serialize_to_json(metadata),
                 "external_ids": serialize_to_json(
                     update.external_ids if overwrite else cur_item.external_ids
                 ),
+                "search_name": create_safe_string(name, True, True),
+                "search_sort_name": create_safe_string(sort_name, True, True),
             },
         )
         # update/set provider_mappings table
