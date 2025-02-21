@@ -8,12 +8,14 @@ Plugin provider for Music Assistant that exposes an additional HTTP port on
 from typing import TYPE_CHECKING, cast
 
 import uvicorn
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueType
 from music_assistant_models.enums import ConfigEntryType
 
 from music_assistant.mass import MusicAssistant
 from music_assistant.models.plugin import PluginProvider
+
+from .request_model import LevelSetPoint, ResourceURI, SwitchState, TimeSecondsNumber
 
 if TYPE_CHECKING:
     from music_assistant_models.config_entries import ProviderConfig
@@ -125,14 +127,22 @@ The following interactions are implemented
     def register_routes(self) -> None:  # noqa: PLR0915
         """Set up the API endpoint URIs with their methods."""
 
-        @self.rest_router.get("/players", tags=["player"])
+        @self.rest_router.get(
+            "/players",
+            tags=["player"],
+            summary="Retrieve a list of player IDs and their names",
+        )
         def list_players() -> list[dict[str, str]]:
             players = self.mass.players.all()
             if len(players) == 0:
                 raise HTTPException(status_code=404, detail="No player was found")
             return [{"player_id": player.player_id, "name": player.name} for player in players]
 
-        @self.rest_router.post("/player/{player_name}/play", tags=["player"])
+        @self.rest_router.post(
+            "/player/{player_name}/play",
+            tags=["player"],
+            summary="Set the status of a specific player to 'play'",
+        )
         async def play(player_name: str) -> dict[str, str]:
             player = self.mass.players.get_by_name(player_name)
             if not player:
@@ -144,7 +154,11 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to play on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute play: {e}") from e
 
-        @self.rest_router.post("/player/{player_name}/pause", tags=["player"])
+        @self.rest_router.post(
+            "/player/{player_name}/pause",
+            tags=["player"],
+            summary="Set the status of a specific player to 'pause'",
+        )
         async def pause(player_name: str) -> dict[str, str]:
             player = self.mass.players.get_by_name(player_name)
             if not player:
@@ -156,7 +170,11 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to pause on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute pause: {e}") from e
 
-        @self.rest_router.post("/player/{player_name}/stop", tags=["player"])
+        @self.rest_router.post(
+            "/player/{player_name}/stop",
+            tags=["player"],
+            summary="Set the status of a specific player to 'stop'",
+        )
         async def stop(player_name: str) -> dict[str, str]:
             player = self.mass.players.get_by_name(player_name)
             if not player:
@@ -168,30 +186,38 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to stop on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute stop: {e}") from e
 
-        @self.rest_router.post("/player/{player_name}/seek", tags=["player"])
-        async def seek(player_name: str, request: Request) -> dict[str, str]:
-            payload = await request.json()
-            position = payload.get("position")
-            if position is None:
-                raise HTTPException(status_code=400, detail="Missing 'position' in request")
+        @self.rest_router.post(
+            "/player/{player_name}/seek",
+            tags=["player"],
+            summary="Seek the source of a specific player for the specified seconds from start",
+        )
+        async def seek(player_name: str, body: TimeSecondsNumber) -> dict[str, str]:
+            position = body.seconds
+            if position < 0:
+                raise HTTPException(
+                    status_code=400, detail="The number of seconds must be positive!"
+                )
             player = self.mass.players.get_by_name(player_name)
             if not player:
                 raise HTTPException(status_code=404, detail=f"Player '{player_name}' not found")
             try:
                 await self.mass.players.cmd_seek(player.player_id, position)
-                return {"status": "seeked", "player_name": player_name, "position": position}
+                return {"status": "seeked", "player_name": player_name, "position": str(position)}
             except Exception as e:
                 self.logger.exception(f"Failed to seek on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute seek: {e}") from e
 
-        @self.rest_router.post("/player/{player_name}/volume", tags=["player"])
-        async def volume(player_name: str, request: Request) -> dict[str, str]:
-            payload = await request.json()
-            volume = payload.get("volume")
-            if volume is not None and not 0 <= volume <= 100:
+        @self.rest_router.post(
+            "/player/{player_name}/volume",
+            tags=["player"],
+            description="Set the volume of a specific player from 0 to 100",
+        )
+        async def volume(player_name: str, body: LevelSetPoint) -> dict[str, str]:
+            volume = body.level
+            if not 0 <= volume <= 100:
                 raise HTTPException(
                     status_code=400,
-                    detail="Invalid 'volume'. Expected an integer between 1 and 100.",
+                    detail="Invalid 'volume'. Expected an integer between 0 and 100.",
                 )
             player = self.mass.players.get_by_name(player_name)
             if not player:
@@ -203,42 +229,37 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to set volume on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute volume: {e}") from e
 
-        @self.rest_router.post("/player/{player_name}/power", tags=["player"])
-        async def power(player_name: str, request: Request) -> dict[str, str]:
-            payload = await request.json()
-            state = payload.get("state")
-            if state not in ("on", "off"):
-                raise HTTPException(
-                    status_code=400, detail="Invalid 'state'. Expected 'on' or 'off'."
-                )
+        @self.rest_router.post(
+            "/player/{player_name}/power",
+            tags=["player"],
+            description="Set the power state of a specific player to either 'true' or 'false'",
+        )
+        async def power(player_name: str, body: SwitchState) -> dict[str, str]:
+            state = body.state
             player = self.mass.players.get_by_name(player_name)
             if not player:
                 raise HTTPException(status_code=404, detail=f"Player '{player_name}' not found")
             try:
-                await self.mass.players.cmd_power(player.player_id, state == "on")
-                return {"status": f"power_{state}", "player_name": player_name}
+                await self.mass.players.cmd_power(player.player_id, state)
+                return {"power": str(state), "player_name": player_name}
             except Exception as e:
                 self.logger.exception(f"Failed power on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute power: {e}") from e
 
-        @self.rest_router.post("/queues/{player_name}/play_media", tags=["queues"])
-        async def play_media(player_name: str, request: Request) -> dict[str, str]:
-            try:
-                payload = await request.json()
-                media_uri = payload.get("media_uri")
-            except Exception as e:
-                raise HTTPException(
-                    status_code=400, detail=f"Unable to red the POST contents: {e}"
-                ) from e
+        @self.rest_router.post(
+            "/queues/{player_name}/play_media",
+            tags=["queues"],
+            description="Set the queue for a specific player to the media source provided",
+        )
+        async def play_media(player_name: str, body: ResourceURI) -> dict[str, str]:
+            media_uri = body.uri
             player = self.mass.players.get_by_name(player_name)
             if not player:
                 raise HTTPException(status_code=404, detail=f"Player '{player_name}' not found")
+            active_queue = self.mass.player_queues.get(player.player_id)
+            if active_queue is None:
+                raise HTTPException(status_code=404, detail="Active queue not found for the player")
             try:
-                active_queue = self.mass.player_queues.get(player.player_id)
-                if active_queue is None:
-                    raise HTTPException(
-                        status_code=404, detail="Active queue not found for the player"
-                    )
                 await self.mass.player_queues.play_media(active_queue.queue_id, media_uri)
                 return {"status": "enqueued", "player_name": player_name}
             except Exception as e:
@@ -249,7 +270,11 @@ The following interactions are implemented
                     status_code=500, detail=f"Failed to execute play_media: {e}"
                 ) from e
 
-        @self.rest_router.post("/queues/{player_name}/clear", tags=["queues"])
+        @self.rest_router.post(
+            "/queues/{player_name}/clear",
+            tags=["queues"],
+            description="Clear the media queue for a specific player",
+        )
         def clear(player_name: str) -> dict[str, str]:
             player = self.mass.players.get_by_name(player_name)
             if not player:
@@ -266,25 +291,22 @@ The following interactions are implemented
                 self.logger.exception(f"Failed to clear queue on player '{player_name}': {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to execute clear: {e}") from e
 
-        @self.rest_router.post("/queues/{player_name}/shuffle", tags=["queues"])
-        async def shuffle(player_name: str, request: Request) -> dict[str, str]:
-            payload = await request.json()
-            state = payload.get("state")
-            if state not in ("on", "off"):
-                raise HTTPException(
-                    status_code=400, detail="Invalid 'state'. Expected 'on' or 'off'."
-                )
+        @self.rest_router.post(
+            "/queues/{player_name}/shuffle",
+            tags=["queues"],
+            description="Set the shuffle mode for a media queue of a specific player to either 'true' or 'false'",  # noqa: E501
+        )
+        def shuffle(player_name: str, body: SwitchState) -> dict[str, str]:
+            state = body.state
             player = self.mass.players.get_by_name(player_name)
             if not player:
                 raise HTTPException(status_code=404, detail=f"Player '{player_name}' not found")
+            active_queue = self.mass.player_queues.get(player.player_id)
+            if active_queue is None:
+                raise HTTPException(status_code=404, detail="Active queue not found for the player")
             try:
-                active_queue = self.mass.player_queues.get(player.player_id)
-                if active_queue is None:
-                    raise HTTPException(
-                        status_code=404, detail="Active queue not found for the player"
-                    )
-                self.mass.player_queues.set_shuffle(active_queue.queue_id, state == "on")
-                return {"status": f"shuffle_{state}", "player_name": player_name}
+                self.mass.player_queues.set_shuffle(active_queue.queue_id, state)
+                return {"shuffle": str(state), "player_name": player_name}
             except Exception as e:
                 self.logger.exception(f"Failed shuffle on player '{player_name}': {e}")
                 raise HTTPException(
