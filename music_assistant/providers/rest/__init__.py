@@ -106,9 +106,9 @@ The following interactions are implemented
             description=description,
             summary="Plugin provider with independent HTTP interface",
             version="1.0.0",
-            docs_url="/api/v1/swagger",
+            docs_url="/api/swagger",
             redoc_url=None,
-            openapi_url="/api/v1/openapi.json",
+            openapi_url="/api/openapi.json",
             openapi_tags=tags_metadata,
         )
         self.rest_router = APIRouter()
