@@ -195,7 +195,10 @@ class ITunesPodcastsProvider(MusicProvider):
 
     async def _get_parsed_podcast(self, prov_podcast_id: str) -> dict[str, Any]:
         # cache this?
-        response = await self.mass.http_session.get(prov_podcast_id)
+        # see music-assistant/server@6aae82e
+        response = await self.mass.http_session.get(
+            prov_podcast_id, headers={"User-Agent": "Mozilla/5.0"}
+        )
         if response.status != 200:
             raise MediaNotFoundError("Podcast not found!")
         feed_data = await response.read()
