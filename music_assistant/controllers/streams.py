@@ -8,6 +8,7 @@ the upnp callbacks and json rpc api for slimproto clients.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import urllib.parse
 from collections.abc import AsyncGenerator
@@ -592,6 +593,7 @@ class StreamsController(CoreController):
             "Accept-Ranges": "none",
             "Content-Type": f"audio/{output_format.output_format_str}",
         }
+
         resp = web.StreamResponse(
             status=200,
             reason="OK",
@@ -614,12 +616,6 @@ class StreamsController(CoreController):
             return resp
 
         # all checks passed, start streaming!
-        self.logger.debug(
-            "Start serving audio stream for PluginSource %s (%s) to %s",
-            plugin_source.name,
-            plugin_source.id,
-            player.display_name,
-        )
         async for chunk in self.get_plugin_source_stream(
             plugin_source_id=plugin_source_id,
             output_format=output_format,
@@ -867,29 +863,34 @@ class StreamsController(CoreController):
         player = self.mass.players.get(player_id)
         plugin_prov: PluginProvider = self.mass.get_provider(plugin_source_id)
         plugin_source = plugin_prov.get_source()
-        if plugin_prov.in_use_by and plugin_prov.in_use_by != player_id:
+        if plugin_source.in_use_by and plugin_source.in_use_by != player_id:
             raise RuntimeError(
-                f"PluginSource plugin_source.name is already in use by {plugin_prov.in_use_by}"
+                f"PluginSource plugin_source.name is already in use by {plugin_source.in_use_by}"
             )
+        self.logger.debug("Start streaming PluginSource %s to %s", plugin_source_id, player_id)
         audio_input = (
             plugin_prov.get_audio_stream(player_id)
             if plugin_source.stream_type == StreamType.CUSTOM
             else plugin_source.path
         )
-        chunk_size = int(get_chunksize(output_format, 1) / 10)
         player.active_source = plugin_source_id
+        plugin_source.in_use_by = player_id
         try:
             async for chunk in get_ffmpeg_stream(
                 audio_input=audio_input,
                 input_format=plugin_source.audio_format,
                 output_format=output_format,
-                chunk_size=chunk_size,
                 filter_params=player_filter_params,
                 extra_input_args=["-re"],
             ):
                 yield chunk
         finally:
+            self.logger.debug(
+                "Finished streaming PluginSource %s to %s", plugin_source_id, player_id
+            )
+            await asyncio.sleep(0.5)
             player.active_source = player.player_id
+            plugin_source.in_use_by = None
 
     async def get_queue_item_stream(
         self,

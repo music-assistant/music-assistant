@@ -440,8 +440,6 @@ class LocalFileSystemProvider(MusicProvider):
                     playlist = await self.get_playlist(item.relative_path)
                     # add/update] playlist to db
                     playlist.cache_checksum = item.checksum
-                    # playlist is always favorite
-                    playlist.favorite = True
                     await self.mass.music.playlists.add_item_to_library(
                         playlist,
                         overwrite_existing=prev_checksum is not None,

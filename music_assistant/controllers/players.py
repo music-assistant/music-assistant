@@ -1635,10 +1635,6 @@ class PlayerController(CoreController):
     ) -> None:
         """Handle playback/select of given plugin source on player."""
         plugin_source = plugin_prov.get_source()
-        if plugin_prov.in_use_by and plugin_prov.in_use_by != player.player_id:
-            raise PlayerCommandFailed(
-                f"Source {plugin_source.name} is already in use by another player"
-            )
         player.active_source = plugin_source.id
         stream_url = self.mass.streams.get_plugin_source_url(plugin_source.id, player.player_id)
         await self.play_media(
@@ -1669,9 +1665,9 @@ class PlayerController(CoreController):
         for plugin_prov in self.mass.get_providers(ProviderType.PLUGIN):
             if ProviderFeature.AUDIO_SOURCE not in plugin_prov.supported_features:
                 continue
-            if plugin_prov.in_use_by and plugin_prov.in_use_by != player.player_id:
-                continue
             plugin_source = plugin_prov.get_source()
+            if plugin_source.in_use_by and plugin_source.in_use_by != player.player_id:
+                continue
             if plugin_source.id in player_source_ids:
                 continue
             player.source_list.append(plugin_source)

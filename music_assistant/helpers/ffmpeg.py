@@ -226,9 +226,12 @@ def get_ffmpeg_args(
         "-ignore_unknown",
         "-protocol_whitelist",
         "file,hls,http,https,tcp,tls,crypto,pipe,data,fd,rtp,udp,concat",
+        "-probesize",
+        "8192",
     ]
     # collect input args
     input_args = []
+
     if extra_input_args:
         input_args += extra_input_args
     if input_path.startswith("http"):
