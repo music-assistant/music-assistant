@@ -90,27 +90,12 @@ class AsyncProcess:
 
     async def start(self) -> None:
         """Perform Async init of process."""
-        for attempt in range(2):
-            try:
-                self.proc = await asyncio.create_subprocess_exec(
-                    *self._args,
-                    stdin=asyncio.subprocess.PIPE if self._stdin is True else self._stdin,
-                    stdout=asyncio.subprocess.PIPE if self._stdout is True else self._stdout,
-                    stderr=asyncio.subprocess.PIPE if self._stderr is True else self._stderr,
-                    # because we're exchanging big amounts of (audio) data with pipes
-                    # it makes sense to extend the pipe size and (buffer) limits a bit
-                    limit=1000000 if attempt == 0 else 65536,
-                    pipesize=1000000 if attempt == 0 else -1,
-                )
-                break
-            except PermissionError:
-                if attempt > 0:
-                    raise
-                LOGGER.error(
-                    "Detected that you are running the (docker) container without "
-                    "permissive access rights. This will impact performance !"
-                )
-
+        self.proc = await asyncio.create_subprocess_exec(
+            *self._args,
+            stdin=asyncio.subprocess.PIPE if self._stdin is True else self._stdin,
+            stdout=asyncio.subprocess.PIPE if self._stdout is True else self._stdout,
+            stderr=asyncio.subprocess.PIPE if self._stderr is True else self._stderr,
+        )
         self.logger.log(
             VERBOSE_LOG_LEVEL, "Process %s started with PID %s", self.name, self.proc.pid
         )

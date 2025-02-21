@@ -17,15 +17,15 @@ from aiohttp.client_exceptions import ClientError
 from aiosonos.api.models import SonosCapability
 from aiosonos.utils import get_discovery_info
 from music_assistant_models.config_entries import ConfigEntry, PlayerConfig
-from music_assistant_models.enums import ConfigEntryType, ContentType, PlayerState, ProviderFeature
+from music_assistant_models.enums import ConfigEntryType, MediaType, PlayerState, ProviderFeature
 from music_assistant_models.errors import PlayerCommandFailed
 from music_assistant_models.player import DeviceInfo, PlayerMedia
 from zeroconf import ServiceStateChange
 
 from music_assistant.constants import (
     CONF_ENTRY_CROSSFADE,
-    CONF_ENTRY_ENFORCE_MP3,
     CONF_ENTRY_FLOW_MODE_HIDDEN_DISABLED,
+    CONF_ENTRY_OUTPUT_CODEC,
     MASS_LOGO_ONLINE,
     VERBOSE_LOG_LEVEL,
     create_sample_rates_config_entry,
@@ -156,8 +156,10 @@ class SonosPlayerProvider(PlayerProvider):
             *await super().get_player_config_entries(player_id),
             CONF_ENTRY_CROSSFADE,
             CONF_ENTRY_FLOW_MODE_HIDDEN_DISABLED,
-            CONF_ENTRY_ENFORCE_MP3,
-            create_sample_rates_config_entry(48000, 24, 48000, 24, True),
+            CONF_ENTRY_OUTPUT_CODEC,
+            create_sample_rates_config_entry(
+                max_sample_rate=48000, max_bit_depth=24, safe_max_bit_depth=24, hidden=True
+            ),
         )
         if not (sonos_player := self.sonos_players.get(player_id)):
             # most probably the player is not yet discovered
@@ -324,10 +326,12 @@ class SonosPlayerProvider(PlayerProvider):
 
         if media.queue_id and media.queue_id.startswith("ugp_"):
             # Special UGP stream - handle with play URL
+            # enforce mp3 here because Sonos really does not support FLAC streams without duration
+            media.uri = media.uri.replace(".flac", ".mp3")
             await sonos_player.client.player.group.play_stream_url(media.uri, None)
             return
 
-        if media.queue_id:
+        if media.queue_id and media.media_type != MediaType.PLUGIN_SOURCE:
             # create a sonos cloud queue and load it
             cloud_queue_url = f"{self.mass.streams.base_url}/sonos_queue/v2.3/"
             await sonos_player.client.player.group.play_cloud_queue(
@@ -446,12 +450,7 @@ class SonosPlayerProvider(PlayerProvider):
             limit=upcoming_window_size + previous_window_size,
             offset=max(queue_index - previous_window_size, 0),
         )
-        enforce_mp3 = self.mass.config.get_raw_player_config_value(
-            sonos_player_id, CONF_ENTRY_ENFORCE_MP3.key, CONF_ENTRY_ENFORCE_MP3.default_value
-        )
-        sonos_queue_items = [
-            self._parse_sonos_queue_item(item, enforce_mp3) for item in queue_items
-        ]
+        sonos_queue_items = [await self._parse_sonos_queue_item(item) for item in queue_items]
         result = {
             "includesBeginningOfQueue": offset == 0,
             "includesEndOfQueue": mass_queue.items <= (queue_index + len(sonos_queue_items)),
@@ -550,7 +549,7 @@ class SonosPlayerProvider(PlayerProvider):
             break
         return web.Response(status=204)
 
-    def _parse_sonos_queue_item(self, queue_item: QueueItem, enforce_mp3: bool) -> dict[str, Any]:
+    async def _parse_sonos_queue_item(self, queue_item: QueueItem) -> dict[str, Any]:
         """Parse a Sonos queue item to a PlayerMedia object."""
         available = queue_item.media_item.available if queue_item.media_item else True
         return {
@@ -559,9 +558,7 @@ class SonosPlayerProvider(PlayerProvider):
             "policies": {},
             "track": {
                 "type": "track",
-                "mediaUrl": self.mass.streams.resolve_stream_url(
-                    queue_item, output_codec=ContentType.MP3 if enforce_mp3 else ContentType.FLAC
-                ),
+                "mediaUrl": await self.mass.streams.resolve_stream_url(queue_item),
                 "contentType": "audio/flac",
                 "service": {
                     "name": "Music Assistant",

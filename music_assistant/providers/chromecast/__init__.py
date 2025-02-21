@@ -30,10 +30,9 @@ from pychromecast.socket_client import CONNECTION_STATUS_CONNECTED, CONNECTION_S
 
 from music_assistant.constants import (
     BASE_PLAYER_CONFIG_ENTRIES,
-    CONF_ENFORCE_MP3,
     CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_CROSSFADE_FLOW_MODE_REQUIRED,
-    CONF_ENTRY_ENFORCE_MP3,
+    CONF_ENTRY_OUTPUT_CODEC,
     CONF_MUTE_CONTROL,
     CONF_PLAYERS,
     CONF_POWER_CONTROL,
@@ -61,14 +60,20 @@ if TYPE_CHECKING:
 PLAYER_CONFIG_ENTRIES = (
     CONF_ENTRY_CROSSFADE_FLOW_MODE_REQUIRED,
     CONF_ENTRY_CROSSFADE_DURATION,
-    CONF_ENTRY_ENFORCE_MP3,
+    CONF_ENTRY_OUTPUT_CODEC,
 )
 
 # originally/officially cast supports 96k sample rate (even for groups)
 # but it seems a (recent?) update broke this ?!
 # For now only set safe default values and let the user try out higher values
-CONF_ENTRY_SAMPLE_RATES_CAST = create_sample_rates_config_entry(192000, 24, 48000, 24)
-CONF_ENTRY_SAMPLE_RATES_CAST_GROUP = create_sample_rates_config_entry(96000, 24, 44100, 16)
+CONF_ENTRY_SAMPLE_RATES_CAST = create_sample_rates_config_entry(
+    max_sample_rate=192000,
+    max_bit_depth=24,
+)
+CONF_ENTRY_SAMPLE_RATES_CAST_GROUP = create_sample_rates_config_entry(
+    max_sample_rate=96000,
+    max_bit_depth=24,
+)
 
 
 MASS_APP_ID = "C35B0678"
@@ -277,8 +282,6 @@ class ChromecastProvider(PlayerProvider):
     ) -> None:
         """Handle PLAY MEDIA on given player."""
         castplayer = self.castplayers[player_id]
-        if self.mass.config.get_raw_player_config_value(player_id, CONF_ENFORCE_MP3, False):
-            media.uri = media.uri.replace(".flac", ".mp3")
         queuedata = {
             "type": "LOAD",
             "media": self._create_cc_media_item(media),
@@ -292,8 +295,6 @@ class ChromecastProvider(PlayerProvider):
     async def enqueue_next_media(self, player_id: str, media: PlayerMedia) -> None:
         """Handle enqueuing of the next item on the player."""
         castplayer = self.castplayers[player_id]
-        if self.mass.config.get_raw_player_config_value(player_id, CONF_ENFORCE_MP3, False):
-            media.uri = media.uri.replace(".flac", ".mp3")
         next_item_id = None
         status = castplayer.cc.media_controller.status
         # lookup position of current track in cast queue

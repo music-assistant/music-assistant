@@ -16,6 +16,7 @@ from music_assistant.helpers.compare import (
     compare_album,
     compare_artists,
     compare_media_item,
+    create_safe_string,
     loose_compare_strings,
 )
 from music_assistant.helpers.json import serialize_to_json
@@ -123,15 +124,17 @@ class AlbumsController(MediaControllerBase[Album]):
             # handle combined artist + title search
             artist_str, title_str = search.split(" - ", 1)
             search = None
-            extra_query_parts.append("albums.name LIKE :search_title")
+            title_str = create_safe_string(title_str, True, True)
+            artist_str = create_safe_string(artist_str, True, True)
+            extra_query_parts.append("albums.search_name LIKE :search_title")
             extra_query_params["search_title"] = f"%{title_str}%"
             # use join with artists table to filter on artist name
             extra_join_parts.append(
                 "JOIN album_artists ON album_artists.album_id = albums.item_id "
                 "JOIN artists ON artists.item_id = album_artists.artist_id "
-                "AND artists.name LIKE :search_artist"
+                "AND artists.search_name LIKE :search_artist"
                 if not artist_table_joined
-                else "AND artists.name LIKE :search_artist"
+                else "AND artists.search_name LIKE :search_artist"
             )
             artist_table_joined = True
             extra_query_params["search_artist"] = f"%{artist_str}%"
@@ -148,12 +151,13 @@ class AlbumsController(MediaControllerBase[Album]):
         )
         if search and len(result) < 25 and not offset:
             # append artist items to result
+            search = create_safe_string(search, True, True)
             extra_join_parts.append(
                 "JOIN album_artists ON album_artists.album_id = albums.item_id "
                 "JOIN artists ON artists.item_id = album_artists.artist_id "
-                "AND artists.name LIKE :search_artist"
+                "AND artists.search_name LIKE :search_artist"
                 if not artist_table_joined
-                else "AND artists.name LIKE :search_artist"
+                else "AND artists.search_name LIKE :search_artist"
             )
             extra_query_params["search_artist"] = f"%{search}%"
             return result + await self._get_library_items_by_query(
@@ -304,6 +308,8 @@ class AlbumsController(MediaControllerBase[Album]):
                 "year": item.year,
                 "metadata": serialize_to_json(item.metadata),
                 "external_ids": serialize_to_json(item.external_ids),
+                "search_name": create_safe_string(item.name, True, True),
+                "search_sort_name": create_safe_string(item.sort_name, True, True),
             },
         )
         # update/set provider_mappings table
@@ -330,14 +336,14 @@ class AlbumsController(MediaControllerBase[Album]):
             if overwrite
             else {*cur_item.provider_mappings, *update.provider_mappings}
         )
+        name = update.name if overwrite else cur_item.name
+        sort_name = update.sort_name if overwrite else cur_item.sort_name or update.sort_name
         await self.mass.music.database.update(
             self.db_table,
             {"item_id": db_id},
             {
-                "name": update.name if overwrite else cur_item.name,
-                "sort_name": update.sort_name
-                if overwrite
-                else cur_item.sort_name or update.sort_name,
+                "name": name,
+                "sort_name": sort_name,
                 "version": update.version if overwrite else cur_item.version or update.version,
                 "year": update.year if overwrite else cur_item.year or update.year,
                 "album_type": album_type.value,
@@ -345,6 +351,8 @@ class AlbumsController(MediaControllerBase[Album]):
                 "external_ids": serialize_to_json(
                     update.external_ids if overwrite else cur_item.external_ids
                 ),
+                "search_name": create_safe_string(name, True, True),
+                "search_sort_name": create_safe_string(sort_name, True, True),
             },
         )
         # update/set provider_mappings table

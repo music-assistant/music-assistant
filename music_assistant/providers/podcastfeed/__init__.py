@@ -100,7 +100,10 @@ class PodcastMusicprovider(MusicProvider):
         # ruff: noqa: S310
         feed_url = podcastparser.normalize_feed_url(self.config.get_value(CONF_FEED_URL))
         self.podcast_id = create_safe_string(feed_url.replace("http", ""))
-        async with self.mass.http_session.get(feed_url) as response:
+        # without user agent, some feeds can not be retrieved
+        # https://github.com/music-assistant/support/issues/3596
+        headers = {"User-Agent": "Mozilla/5.0"}
+        async with self.mass.http_session.get(feed_url, headers=headers) as response:
             if response.status == 200:
                 feed_data = await response.read()
                 feed_stream = BytesIO(feed_data)

@@ -14,6 +14,7 @@ from music_assistant.controllers.media.base import MediaControllerBase
 from music_assistant.helpers.compare import (
     compare_media_item,
     compare_podcast,
+    create_safe_string,
     loose_compare_strings,
 )
 from music_assistant.helpers.json import serialize_to_json
@@ -168,6 +169,8 @@ class PodcastsController(MediaControllerBase[Podcast]):
                 "external_ids": serialize_to_json(item.external_ids),
                 "publisher": item.publisher,
                 "total_episodes": item.total_episodes,
+                "search_name": create_safe_string(item.name, True, True),
+                "search_sort_name": create_safe_string(item.sort_name, True, True),
             },
         )
         # update/set provider_mappings table
@@ -188,14 +191,14 @@ class PodcastsController(MediaControllerBase[Podcast]):
             if overwrite
             else {*cur_item.provider_mappings, *update.provider_mappings}
         )
+        name = update.name if overwrite else cur_item.name
+        sort_name = update.sort_name if overwrite else cur_item.sort_name or update.sort_name
         await self.mass.music.database.update(
             self.db_table,
             {"item_id": db_id},
             {
-                "name": update.name if overwrite else cur_item.name,
-                "sort_name": update.sort_name
-                if overwrite
-                else cur_item.sort_name or update.sort_name,
+                "name": name,
+                "sort_name": sort_name,
                 "version": update.version if overwrite else cur_item.version or update.version,
                 "metadata": serialize_to_json(metadata),
                 "external_ids": serialize_to_json(
@@ -203,6 +206,8 @@ class PodcastsController(MediaControllerBase[Podcast]):
                 ),
                 "publisher": cur_item.publisher or update.publisher,
                 "total_episodes": cur_item.total_episodes or update.total_episodes,
+                "search_name": create_safe_string(name, True, True),
+                "search_sort_name": create_safe_string(sort_name, True, True),
             },
         )
         # update/set provider_mappings table

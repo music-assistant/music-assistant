@@ -54,6 +54,7 @@ from music_assistant.constants import (
     PROVIDERS_WITH_SHAREABLE_URLS,
 )
 from music_assistant.helpers.api import api_command
+from music_assistant.helpers.compare import create_safe_string
 from music_assistant.helpers.database import DatabaseConnection
 from music_assistant.helpers.datetime import utc_timestamp
 from music_assistant.helpers.json import json_loads, serialize_to_json
@@ -80,7 +81,7 @@ DEFAULT_SYNC_INTERVAL = 12 * 60  # default sync interval in minutes
 CONF_SYNC_INTERVAL = "sync_interval"
 CONF_DELETED_PROVIDERS = "deleted_providers"
 CONF_ADD_LIBRARY_ON_PLAY = "add_library_on_play"
-DB_SCHEMA_VERSION: Final[int] = 15
+DB_SCHEMA_VERSION: Final[int] = 16
 
 
 class MusicController(CoreController):
@@ -1328,6 +1329,40 @@ class MusicController(CoreController):
             await self.database.execute(f"DROP TABLE IF EXISTS {DB_TABLE_PLAYLOG}")
             await self.__create_database_tables()
 
+        if prev_version <= 15:
+            # add search_name and search_sort_name columns to all tables
+            # and populate them with the name and sort_name values
+            # this is to allow for local/case independent searches
+            for table in (
+                DB_TABLE_TRACKS,
+                DB_TABLE_ALBUMS,
+                DB_TABLE_ARTISTS,
+                DB_TABLE_RADIOS,
+                DB_TABLE_PLAYLISTS,
+                DB_TABLE_AUDIOBOOKS,
+                DB_TABLE_PODCASTS,
+            ):
+                try:
+                    await self.database.execute(
+                        f"ALTER TABLE {table} ADD COLUMN search_name TEXT DEFAULT '' NOT NULL"
+                    )
+                    await self.database.execute(
+                        f"ALTER TABLE {table} ADD COLUMN search_sort_name TEXT DEFAULT '' NOT NULL"
+                    )
+                except Exception as err:
+                    if "duplicate column" not in str(err):
+                        raise
+                # migrate all existing values
+                async for db_row in self.database.iter_items(table):
+                    await self.database.update(
+                        table,
+                        {"item_id": db_row["item_id"]},
+                        {
+                            "search_name": create_safe_string(db_row["name"], True, True),
+                            "search_sort_name": create_safe_string(db_row["sort_name"], True, True),
+                        },
+                    )
+
         # save changes
         await self.database.commit()
 
@@ -1379,7 +1414,9 @@ class MusicController(CoreController):
                     [play_count] INTEGER DEFAULT 0,
                     [last_played] INTEGER DEFAULT 0,
                     [timestamp_added] INTEGER DEFAULT (cast(strftime('%s','now') as int)),
-                    [timestamp_modified] INTEGER
+                    [timestamp_modified] INTEGER,
+                    [search_name] TEXT NOT NULL,
+                    [search_sort_name] TEXT NOT NULL
                 );"""
         )
         await self.database.execute(
@@ -1394,7 +1431,9 @@ class MusicController(CoreController):
             [play_count] INTEGER DEFAULT 0,
             [last_played] INTEGER DEFAULT 0,
             [timestamp_added] INTEGER DEFAULT (cast(strftime('%s','now') as int)),
-            [timestamp_modified] INTEGER
+            [timestamp_modified] INTEGER,
+            [search_name] TEXT NOT NULL,
+            [search_sort_name] TEXT NOT NULL
             );"""
         )
         await self.database.execute(
@@ -1411,7 +1450,9 @@ class MusicController(CoreController):
             [play_count] INTEGER DEFAULT 0,
             [last_played] INTEGER DEFAULT 0,
             [timestamp_added] INTEGER DEFAULT (cast(strftime('%s','now') as int)),
-            [timestamp_modified] INTEGER
+            [timestamp_modified] INTEGER,
+            [search_name] TEXT NOT NULL,
+            [search_sort_name] TEXT NOT NULL
             );"""
         )
         await self.database.execute(
@@ -1429,7 +1470,9 @@ class MusicController(CoreController):
             [play_count] INTEGER DEFAULT 0,
             [last_played] INTEGER DEFAULT 0,
             [timestamp_added] INTEGER DEFAULT (cast(strftime('%s','now') as int)),
-            [timestamp_modified] INTEGER
+            [timestamp_modified] INTEGER,
+            [search_name] TEXT NOT NULL,
+            [search_sort_name] TEXT NOT NULL
             );"""
         )
         await self.database.execute(
@@ -1444,7 +1487,9 @@ class MusicController(CoreController):
             [play_count] INTEGER DEFAULT 0,
             [last_played] INTEGER DEFAULT 0,
             [timestamp_added] INTEGER DEFAULT (cast(strftime('%s','now') as int)),
-            [timestamp_modified] INTEGER
+            [timestamp_modified] INTEGER,
+            [search_name] TEXT NOT NULL,
+            [search_sort_name] TEXT NOT NULL
             );"""
         )
         await self.database.execute(
@@ -1464,7 +1509,9 @@ class MusicController(CoreController):
             [play_count] INTEGER DEFAULT 0,
             [last_played] INTEGER DEFAULT 0,
             [timestamp_added] INTEGER DEFAULT (cast(strftime('%s','now') as int)),
-            [timestamp_modified] INTEGER
+            [timestamp_modified] INTEGER,
+            [search_name] TEXT NOT NULL,
+            [search_sort_name] TEXT NOT NULL
             );"""
         )
         await self.database.execute(
@@ -1482,7 +1529,9 @@ class MusicController(CoreController):
             [play_count] INTEGER DEFAULT 0,
             [last_played] INTEGER DEFAULT 0,
             [timestamp_added] INTEGER DEFAULT (cast(strftime('%s','now') as int)),
-            [timestamp_modified] INTEGER
+            [timestamp_modified] INTEGER,
+            [search_name] TEXT NOT NULL,
+            [search_sort_name] TEXT NOT NULL
             );"""
         )
         await self.database.execute(
@@ -1564,19 +1613,18 @@ class MusicController(CoreController):
             await self.database.execute(
                 f"CREATE INDEX IF NOT EXISTS {db_table}_name_idx on {db_table}(name);"
             )
-            # index on name (without case sensitivity)
+            # index on search_name (=lowercase name without diacritics)
             await self.database.execute(
-                f"CREATE INDEX IF NOT EXISTS {db_table}_name_nocase_idx "
-                f"ON {db_table}(name COLLATE NOCASE);"
+                f"CREATE INDEX IF NOT EXISTS {db_table}_name_nocase_idx ON {db_table}(search_name);"
             )
             # index on sort_name
             await self.database.execute(
                 f"CREATE INDEX IF NOT EXISTS {db_table}_sort_name_idx on {db_table}(sort_name);"
             )
-            # index on sort_name (without case sensitivity)
+            # index on search_sort_name (=lowercase sort_name without diacritics)
             await self.database.execute(
-                f"CREATE INDEX IF NOT EXISTS {db_table}_sort_name_nocase_idx "
-                f"ON {db_table}(sort_name COLLATE NOCASE);"
+                f"CREATE INDEX IF NOT EXISTS {db_table}_search_sort_name_idx "
+                f"ON {db_table}(search_sort_name);"
             )
             # index on external_ids
             await self.database.execute(

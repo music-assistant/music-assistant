@@ -22,7 +22,7 @@ from music_assistant.constants import (
     VARIOUS_ARTISTS_NAME,
 )
 from music_assistant.controllers.media.base import MediaControllerBase
-from music_assistant.helpers.compare import compare_artist, compare_strings
+from music_assistant.helpers.compare import compare_artist, compare_strings, create_safe_string
 from music_assistant.helpers.json import serialize_to_json
 
 if TYPE_CHECKING:
@@ -352,6 +352,8 @@ class ArtistsController(MediaControllerBase[Artist]):
                 "favorite": item.favorite,
                 "external_ids": serialize_to_json(item.external_ids),
                 "metadata": serialize_to_json(item.metadata),
+                "search_name": create_safe_string(item.name, True, True),
+                "search_sort_name": create_safe_string(item.sort_name, True, True),
             },
         )
         # update/set provider_mappings table
@@ -381,18 +383,20 @@ class ArtistsController(MediaControllerBase[Artist]):
             if update.mbid == VARIOUS_ARTISTS_MBID:
                 update.name = VARIOUS_ARTISTS_NAME
 
+        name = update.name if overwrite else cur_item.name
+        sort_name = update.sort_name if overwrite else cur_item.sort_name or update.sort_name
         await self.mass.music.database.update(
             self.db_table,
             {"item_id": db_id},
             {
-                "name": update.name if overwrite else cur_item.name,
-                "sort_name": update.sort_name
-                if overwrite
-                else cur_item.sort_name or update.sort_name,
+                "name": name,
+                "sort_name": sort_name,
                 "external_ids": serialize_to_json(
                     update.external_ids if overwrite else cur_item.external_ids
                 ),
                 "metadata": serialize_to_json(metadata),
+                "search_name": create_safe_string(name, True, True),
+                "search_sort_name": create_safe_string(sort_name, True, True),
             },
         )
         self.logger.debug("updated %s in database: %s", update.name, db_id)

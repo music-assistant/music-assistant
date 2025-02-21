@@ -722,10 +722,12 @@ class PlayerController(CoreController):
         # check if player is already playing and source is different
         # in that case we need to stop the player first
         prev_source = player.active_source
-        if prev_source and source != prev_source and player.state != PlayerState.IDLE:
-            await self.cmd_stop(player_id)
-            await asyncio.sleep(0.5)  # small delay to allow stop to process
+        if prev_source and source != prev_source:
+            if player.state != PlayerState.IDLE:
+                await self.cmd_stop(player_id)
+                await asyncio.sleep(0.5)  # small delay to allow stop to process
             player.active_source = None
+            player.current_media = None
         # check if source is a pluginsource
         # in that case the source id is the lookup_key of the plugin provider
         if plugin_prov := self.mass.get_provider(source):
@@ -735,6 +737,7 @@ class PlayerController(CoreController):
         # this can be used to restore the queue after a source switch
         if mass_queue := self.mass.player_queues.get(source):
             player.active_source = mass_queue.queue_id
+            self.update(player_id)
             return
         # basic check if player supports source selection
         if PlayerFeature.SELECT_SOURCE not in player.supported_features:
@@ -1402,7 +1405,9 @@ class PlayerController(CoreController):
         # if player has plugin source active return that
         for plugin_source in self._get_plugin_sources():
             if player.active_source == plugin_source.id or (
-                player.current_media and plugin_source.id == player.current_media.queue_id
+                player.current_media
+                and plugin_source.id == player.current_media.queue_id
+                and player.state in (PlayerState.PLAYING, PlayerState.PAUSED)
             ):
                 # copy/set current media if available
                 if plugin_source.metadata:
@@ -1630,10 +1635,6 @@ class PlayerController(CoreController):
     ) -> None:
         """Handle playback/select of given plugin source on player."""
         plugin_source = plugin_prov.get_source()
-        if plugin_prov.in_use_by and plugin_prov.in_use_by != player.player_id:
-            raise PlayerCommandFailed(
-                f"Source {plugin_source.name} is already in use by another player"
-            )
         player.active_source = plugin_source.id
         stream_url = self.mass.streams.get_plugin_source_url(plugin_source.id, player.player_id)
         await self.play_media(
@@ -1664,9 +1665,9 @@ class PlayerController(CoreController):
         for plugin_prov in self.mass.get_providers(ProviderType.PLUGIN):
             if ProviderFeature.AUDIO_SOURCE not in plugin_prov.supported_features:
                 continue
-            if plugin_prov.in_use_by and plugin_prov.in_use_by != player.player_id:
-                continue
             plugin_source = plugin_prov.get_source()
+            if plugin_source.in_use_by and plugin_source.in_use_by != player.player_id:
+                continue
             if plugin_source.id in player_source_ids:
                 continue
             player.source_list.append(plugin_source)

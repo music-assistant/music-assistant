@@ -40,7 +40,7 @@ class FFMpeg(AsyncProcess):
         extra_input_args: list[str] | None = None,
         audio_output: str | int = "-",
         collect_log_history: bool = False,
-        loglevel: str = "error",
+        loglevel: str = "info",
     ) -> None:
         """Initialize AsyncProcess."""
         ffmpeg_args = get_ffmpeg_args(
@@ -82,7 +82,7 @@ class FFMpeg(AsyncProcess):
             else:
                 clean_args.append(arg)
         args_str = " ".join(clean_args)
-        self.logger.log(VERBOSE_LOG_LEVEL, "started with args: %s", args_str)
+        self.logger.debug("started with args: %s", args_str)
         self._logger_task = asyncio.create_task(self._log_reader_task())
         if isinstance(self.audio_input, AsyncGenerator):
             self._stdin_task = asyncio.create_task(self._feed_stdin())
@@ -141,7 +141,7 @@ class FFMpeg(AsyncProcess):
         cancelled = False
         try:
             start = time.time()
-            self.logger.log(VERBOSE_LOG_LEVEL, "Start reading audio data from source...")
+            self.logger.debug("Start reading audio data from source...")
             # use TimedAsyncGenerator to catch we're stuck waiting on data forever
             # don't set this timeout too low because in some cases it can indeed take a while
             # for data to arrive (e.g. when there is X amount of seconds in the buffer)
@@ -155,9 +155,7 @@ class FFMpeg(AsyncProcess):
                 if self.closed:
                     return
                 await self.write(chunk)
-            self.logger.log(
-                VERBOSE_LOG_LEVEL, "Audio data source exhausted in %.2fs", time.time() - start
-            )
+            self.logger.debug("Audio data source exhausted in %.2fs", time.time() - start)
             generator_exhausted = True
         except Exception as err:
             cancelled = isinstance(err, asyncio.CancelledError)
@@ -228,9 +226,12 @@ def get_ffmpeg_args(
         "-ignore_unknown",
         "-protocol_whitelist",
         "file,hls,http,https,tcp,tls,crypto,pipe,data,fd,rtp,udp,concat",
+        "-probesize",
+        "8192",
     ]
     # collect input args
     input_args = []
+
     if extra_input_args:
         input_args += extra_input_args
     if input_path.startswith("http"):
@@ -273,37 +274,58 @@ def get_ffmpeg_args(
         input_args += ["-i", input_path]
 
     # collect output args
-    output_args = []
+    output_args = [
+        "-ac",
+        str(output_format.channels),
+        "-channel_layout",
+        "mono" if output_format.channels == 1 else "stereo",
+    ]
     if output_path.upper() == "NULL":
         # devnull stream
-        output_args = ["-f", "null", "-"]
-    elif output_format.content_type == ContentType.UNKNOWN:
-        raise RuntimeError("Invalid output format specified")
+        output_path = "-"
+        output_args = ["-f", "null"]
     elif output_format.content_type == ContentType.AAC:
-        output_args = ["-f", "adts", "-c:a", "aac", "-b:a", "256k", output_path]
+        output_args = ["-f", "adts", "-c:a", "aac", "-b:a", "256k"]
     elif output_format.content_type == ContentType.MP3:
-        output_args = ["-f", "mp3", "-b:a", "320k", output_path]
-    else:
-        if output_format.content_type.is_pcm():
-            output_args += ["-acodec", output_format.content_type.name.lower()]
-        # use explicit format identifier for all other
-        output_args += [
-            "-f",
-            output_format.content_type.value,
+        output_args = ["-f", "mp3", "-b:a", "320k"]
+    elif output_format.content_type == ContentType.WAV:
+        pcm_format = ContentType.from_bit_depth(output_format.bit_depth)
+        output_args = [
             "-ar",
             str(output_format.sample_rate),
-            "-ac",
-            str(output_format.channels),
+            "-acodec",
+            pcm_format.name.lower(),
+            "-f",
+            "wav",
         ]
-        if not output_format.content_type.is_pcm() and output_format.content_type.is_lossless():
-            if output_format.bit_depth == 24:
-                output_args += ["-sample_fmt", "s32"]
-            elif output_format.bit_depth == 16:
-                output_args += ["-sample_fmt", "s16"]
-        if output_format.output_format_str == "flac":
-            # use level 0 compression for fastest encoding
-            output_args += ["-compression_level", "0"]
-        output_args += [output_path]
+    elif output_format.content_type == ContentType.FLAC:
+        # use level 0 compression for fastest encoding
+        sample_fmt = "s32" if output_format.bit_depth > 16 else "s16"
+        output_args += [
+            "-sample_fmt",
+            sample_fmt,
+            "-ar",
+            str(output_format.sample_rate),
+            "-f",
+            "flac",
+            "-compression_level",
+            "0",
+        ]
+    elif output_format.content_type.is_pcm():
+        # use explicit format identifier for pcm formats
+        output_args += [
+            "-ar",
+            str(output_format.sample_rate),
+            "-acodec",
+            output_format.content_type.name.lower(),
+            "-f",
+            output_format.content_type.value,
+        ]
+    else:
+        raise RuntimeError("Invalid/unsupported output format specified")
+
+    # append (final) output path at the end of the args
+    output_args.append(output_path)
 
     # edge case: source file is not stereo - downmix to stereo
     if input_format.channels > 2 and output_format.channels == 2:
