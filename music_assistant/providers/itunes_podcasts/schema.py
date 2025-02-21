@@ -36,7 +36,7 @@ class PodcastSearchResult(_BaseModel):
     artwork_url_60: Annotated[str | None, Alias("artworkUrl60")] = None
     artwork_url_100: Annotated[str | None, Alias("artworkUrl100")] = None
     artwork_url_600: Annotated[str | None, Alias("artworkUrl600")] = None
-    release_data: Annotated[str | None, Alias("releaseDate")] = None
+    release_date: Annotated[str | None, Alias("releaseDate")] = None
     track_count: Annotated[int, Alias("trackCount")] = 0
     primary_genre_name: Annotated[str | None, Alias("primaryGenreName")] = None
     genres: list[str] = field(default_factory=list)
