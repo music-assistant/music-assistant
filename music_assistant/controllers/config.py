@@ -707,9 +707,6 @@ class ConfigController:
             self.set(f"{CONF_PROVIDERS}/{provider_instance}/{key}", value)
             return
         self.set(f"{CONF_PROVIDERS}/{provider_instance}/values/{key}", value)
-        # also update the cached value in the provider itself
-        if prov := self.mass.get_provider(provider_instance, return_unavailable=True):
-            prov.config.values[key].value = value
 
     def set_raw_core_config_value(self, core_module: str, key: str, value: ConfigValueType) -> None:
         """

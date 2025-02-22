@@ -192,10 +192,9 @@ class LocalFileSystemProvider(MusicProvider):
         return False
 
     @property
-    def default_name(self) -> str:
-        """Return default name for this provider instance."""
-        postfix = self.base_path.split(os.sep)[-1]
-        return f"{self.manifest.name} {postfix}"
+    def instance_name_postfix(self) -> str | None:
+        """Return a (default) instance name postfix for this provider instance."""
+        return self.base_path.split(os.sep)[-1]
 
     async def handle_async_init(self) -> None:
         """Handle async initialization of the provider."""

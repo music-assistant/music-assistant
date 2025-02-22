@@ -127,12 +127,11 @@ class PodcastMusicprovider(MusicProvider):
         return False
 
     @property
-    def default_name(self) -> str:
-        """Return default name for this provider instance."""
+    def instance_name_postfix(self) -> str | None:
+        """Return a (default) instance name postfix for this provider instance."""
         if self.parsed:
-            postfix = self.parsed["title"]
-            return f"{self.manifest.name}: {postfix}"
-        return super().default_name
+            return self.parsed["title"]
+        return None
 
     async def get_library_podcasts(self) -> AsyncGenerator[Podcast, None]:
         """Retrieve library/subscribed podcasts from the provider."""

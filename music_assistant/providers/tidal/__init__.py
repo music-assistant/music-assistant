@@ -354,24 +354,13 @@ class TidalProvider(MusicProvider):
     _tidal_session: TidalSession | None = None
     _tidal_user_id: str
     # rate limiter needs to be specified on provider-level,
-    # so make it an instance attribute
+    # so make it an class attribute
     throttler = ThrottlerManager(rate_limit=1, period=2)
 
     async def handle_async_init(self) -> None:
         """Handle async initialization of the provider."""
         self._tidal_user_id = str(self.config.get_value(CONF_USER_ID))
-        try:
-            self._tidal_session = await self._get_tidal_session()
-        except Exception as err:
-            if "401 Client Error: Unauthorized" in str(err):
-                self.mass.config.set_raw_provider_config_value(
-                    self.instance_id, CONF_AUTH_TOKEN, None
-                )
-                self.mass.config.set_raw_provider_config_value(
-                    self.instance_id, CONF_REFRESH_TOKEN, None
-                )
-                raise LoginFailed("Credentials expired, you need to re-setup")
-            raise
+        await self._get_tidal_session()
 
     @property
     def supported_features(self) -> set[ProviderFeature]:
@@ -676,27 +665,38 @@ class TidalProvider(MusicProvider):
             > (datetime.now() + timedelta(days=1))
         ):
             return self._tidal_session
-        self._tidal_session = await self._load_tidal_session(
-            token_type="Bearer",
-            quality=str(self.config.get_value(CONF_QUALITY)),
-            access_token=str(self.config.get_value(CONF_AUTH_TOKEN)),
-            refresh_token=str(self.config.get_value(CONF_REFRESH_TOKEN)),
-            expiry_time=datetime.fromisoformat(str(self.config.get_value(CONF_EXPIRY_TIME))),
-        )
-        self.mass.config.set_raw_provider_config_value(
-            self.config.instance_id,
+
+        try:
+            self._tidal_session = await self._load_tidal_session(
+                token_type="Bearer",
+                quality=str(self.config.get_value(CONF_QUALITY)),
+                access_token=str(self.config.get_value(CONF_AUTH_TOKEN)),
+                refresh_token=str(self.config.get_value(CONF_REFRESH_TOKEN)),
+                expiry_time=datetime.fromisoformat(str(self.config.get_value(CONF_EXPIRY_TIME))),
+            )
+        except Exception as err:
+            if "401 Client Error: Unauthorized" in str(err):
+                err_msg = "Credentials expired, you need to re-setup"
+                # clear stored creds
+                self.update_config_value(CONF_AUTH_TOKEN, None)
+                self.update_config_value(CONF_REFRESH_TOKEN, None)
+                # if we're already loaded and the login got invalid, we need to unload
+                if self.available:
+                    self.unload_with_error(err_msg)
+                raise LoginFailed(err_msg)
+            raise
+
+        self.update_config_value(
             CONF_AUTH_TOKEN,
             self._tidal_session.access_token,
             encrypted=True,
         )
-        self.mass.config.set_raw_provider_config_value(
-            self.config.instance_id,
+        self.update_config_value(
             CONF_REFRESH_TOKEN,
             self._tidal_session.refresh_token,
             encrypted=True,
         )
-        self.mass.config.set_raw_provider_config_value(
-            self.config.instance_id,
+        self.update_config_value(
             CONF_EXPIRY_TIME,
             self._tidal_session.expiry_time.isoformat(),
         )

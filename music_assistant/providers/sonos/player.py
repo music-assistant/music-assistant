@@ -434,10 +434,10 @@ class SonosPlayer:
             await self.client.connect()
         except (ConnectionFailed, ClientConnectorError) as err:
             self.logger.warning("Failed to connect to Sonos player: %s", err)
+            if not retry_on_fail or not self.mass_player:
+                raise
             self.mass_player.available = False
             self.mass.players.update(self.player_id)
-            if not retry_on_fail:
-                raise
             self.reconnect(min(retry_on_fail + 30, 3600))
             return
         self.connected = True
