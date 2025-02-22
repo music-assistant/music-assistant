@@ -100,7 +100,10 @@ class PodcastMusicprovider(MusicProvider):
         # ruff: noqa: S310
         feed_url = podcastparser.normalize_feed_url(self.config.get_value(CONF_FEED_URL))
         self.podcast_id = create_safe_string(feed_url.replace("http", ""))
-        async with self.mass.http_session.get(feed_url) as response:
+        # without user agent, some feeds can not be retrieved
+        # https://github.com/music-assistant/support/issues/3596
+        headers = {"User-Agent": "Mozilla/5.0"}
+        async with self.mass.http_session.get(feed_url, headers=headers) as response:
             if response.status == 200:
                 feed_data = await response.read()
                 feed_stream = BytesIO(feed_data)
@@ -124,12 +127,11 @@ class PodcastMusicprovider(MusicProvider):
         return False
 
     @property
-    def default_name(self) -> str:
-        """Return default name for this provider instance."""
+    def instance_name_postfix(self) -> str | None:
+        """Return a (default) instance name postfix for this provider instance."""
         if self.parsed:
-            postfix = self.parsed["title"]
-            return f"{self.manifest.name}: {postfix}"
-        return super().default_name
+            return self.parsed["title"]
+        return None
 
     async def get_library_podcasts(self) -> AsyncGenerator[Podcast, None]:
         """Retrieve library/subscribed podcasts from the provider."""

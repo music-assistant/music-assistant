@@ -288,12 +288,11 @@ class SpotifyProvider(MusicProvider):
         return base
 
     @property
-    def default_name(self) -> str:
-        """Return default name for this provider instance."""
+    def instance_name_postfix(self) -> str | None:
+        """Return a (default) instance name postfix for this provider instance."""
         if self._sp_user:
-            postfix = self._sp_user["display_name"]
-            return f"{self.manifest.name}: {postfix}"
-        return super().default_name
+            return self._sp_user["display_name"]
+        return None
 
     async def search(
         self, search_query: str, media_types=list[MediaType], limit: int = 5
@@ -829,11 +828,13 @@ class SpotifyProvider(MusicProvider):
                 if response.status != 200:
                     err = await response.text()
                     if "revoked" in err:
+                        err_msg = f"Failed to refresh access token: {err}"
                         # clear refresh token if it's invalid
-                        self.mass.config.set_raw_provider_config_value(
-                            self.instance_id, CONF_REFRESH_TOKEN, ""
-                        )
-                        raise LoginFailed(f"Failed to refresh access token: {err}")
+                        self.update_config_value(CONF_REFRESH_TOKEN, None)
+                        if self.available:
+                            # If we're already loaded, we need to unload and set an error
+                            self.unload_with_error(err_msg)
+                        raise LoginFailed(err_msg)
                     # the token failed to refresh, we allow one retry
                     await asyncio.sleep(2)
                     continue
@@ -843,13 +844,13 @@ class SpotifyProvider(MusicProvider):
                 self.logger.debug("Successfully refreshed access token")
                 break
         else:
+            if self.available:
+                self.mass.create_task(self.mass.unload_provider_with_error(self.instance_id))
             raise LoginFailed(f"Failed to refresh access token: {err}")
 
         # make sure that our updated creds get stored in memory + config
         self._auth_info = auth_info
-        self.mass.config.set_raw_provider_config_value(
-            self.instance_id, CONF_REFRESH_TOKEN, auth_info["refresh_token"], encrypted=True
-        )
+        self.update_config_value(CONF_REFRESH_TOKEN, auth_info["refresh_token"], encrypted=True)
         # check if librespot still has valid auth
         args = [
             self._librespot_bin,

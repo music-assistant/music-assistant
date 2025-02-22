@@ -192,10 +192,9 @@ class LocalFileSystemProvider(MusicProvider):
         return False
 
     @property
-    def default_name(self) -> str:
-        """Return default name for this provider instance."""
-        postfix = self.base_path.split(os.sep)[-1]
-        return f"{self.manifest.name} {postfix}"
+    def instance_name_postfix(self) -> str | None:
+        """Return a (default) instance name postfix for this provider instance."""
+        return self.base_path.split(os.sep)[-1]
 
     async def handle_async_init(self) -> None:
         """Handle async initialization of the provider."""
@@ -440,8 +439,6 @@ class LocalFileSystemProvider(MusicProvider):
                     playlist = await self.get_playlist(item.relative_path)
                     # add/update] playlist to db
                     playlist.cache_checksum = item.checksum
-                    # playlist is always favorite
-                    playlist.favorite = True
                     await self.mass.music.playlists.add_item_to_library(
                         playlist,
                         overwrite_existing=prev_checksum is not None,

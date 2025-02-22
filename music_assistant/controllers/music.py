@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import shutil
+from collections.abc import Sequence
 from contextlib import suppress
 from itertools import zip_longest
 from math import inf
@@ -28,6 +29,7 @@ from music_assistant_models.errors import (
 )
 from music_assistant_models.helpers import get_global_cache_value
 from music_assistant_models.media_items import (
+    Artist,
     BrowseFolder,
     ItemMapping,
     MediaItemType,
@@ -35,6 +37,7 @@ from music_assistant_models.media_items import (
     SearchResults,
 )
 from music_assistant_models.provider import SyncTask
+from music_assistant_models.unique_list import UniqueList
 
 from music_assistant.constants import (
     DB_TABLE_ALBUM_ARTISTS,
@@ -283,7 +286,7 @@ class MusicController(CoreController):
         )
         # return result from all providers while keeping index
         # so the result is sorted as each provider delivered
-        return SearchResults(
+        result = SearchResults(
             artists=[
                 item
                 for sublist in zip_longest(*[x.artists for x in results_per_provider])
@@ -327,6 +330,18 @@ class MusicController(CoreController):
                 if item is not None
             ][:limit],
         )
+
+        # the search results should already be sorted by relevance
+        # but we apply one extra round of sorting and that is to put exact name
+        # matches and library items first
+        result.artists = self._sort_search_result(search_query, result.artists)
+        result.albums = self._sort_search_result(search_query, result.albums)
+        result.tracks = self._sort_search_result(search_query, result.tracks)
+        result.playlists = self._sort_search_result(search_query, result.playlists)
+        result.radio = self._sort_search_result(search_query, result.radio)
+        result.audiobooks = self._sort_search_result(search_query, result.audiobooks)
+        result.podcasts = self._sort_search_result(search_query, result.podcasts)
+        return result
 
     async def search_provider(
         self,
@@ -1718,3 +1733,43 @@ class MusicController(CoreController):
                 """
             )
         await self.database.commit()
+
+    def _sort_search_result(
+        self,
+        search_query: str,
+        items: Sequence[MediaItemTypeOrItemMapping],
+    ) -> UniqueList[MediaItemTypeOrItemMapping]:
+        """Sort search results on priority/preference."""
+        scored_items: list[tuple[int, MediaItemTypeOrItemMapping]] = []
+        # search results are already sorted by (streaming) providers on relevance
+        # but we prefer exact name matches and library items so we simply put those
+        # on top of the list.
+        safe_title_str = create_safe_string(search_query)
+        if " - " in search_query:
+            artist, title_alt = search_query.split(" - ", 1)
+            safe_title_alt = create_safe_string(title_alt)
+            safe_artist_str = create_safe_string(artist)
+        else:
+            safe_artist_str = None
+            safe_title_alt = None
+        for item in items:
+            score = 0
+            if create_safe_string(item.name) not in (safe_title_str, safe_title_alt):
+                # literal name match is mandatory to get a score at all
+                continue
+            # bonus point if artist provided and exact match
+            if safe_artist_str:
+                artist: Artist | ItemMapping
+                for artist in getattr(item, "artists", []):
+                    if create_safe_string(artist.name) == safe_artist_str:
+                        score += 1
+            # bonus point for library items
+            if item.provider == "library":
+                score += 1
+            scored_items.append((score, item))
+        scored_items.sort(key=lambda x: x[0], reverse=True)
+        # combine it all with uniquelist, so this will deduplicated by default
+        # note that streaming provider results are already (most likely) sorted on relevance
+        # so we add all remaining items in their original order. We just prioritize
+        # exact name matches and library items.
+        return UniqueList([*[x[1] for x in scored_items], *items])

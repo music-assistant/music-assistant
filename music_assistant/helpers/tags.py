@@ -533,10 +533,10 @@ def parse_tags_mutagen(input_file: str) -> dict[str, Any]:
             result["artistsort"] = tags["TSOP"].text
         if "TSO2" in tags:
             result["albumartistsort"] = tags["TSO2"].text
-        if "TSOT" in tags:
-            result["titlesort"] = tags["TSOT"].text
-        if "TSOA" in tags:
-            result["albumsort"] = tags["TSOA"].text
+        if tags.get("TSOT"):
+            result["titlesort"] = tags["TSOT"].text[0]
+        if tags.get("TSOA"):
+            result["albumsort"] = tags["TSOA"].text[0]
 
         del tags
         return result

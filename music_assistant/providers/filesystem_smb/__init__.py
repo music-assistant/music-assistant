@@ -145,17 +145,15 @@ class SMBFileSystemProvider(LocalFileSystemProvider):
     """
 
     @property
-    def default_name(self) -> str:
-        """Return default name for this provider instance."""
+    def instance_name_postfix(self) -> str | None:
+        """Return a (default) instance name postfix for this provider instance."""
         share = str(self.config.get_value(CONF_SHARE))
         subfolder = str(self.config.get_value(CONF_SUBFOLDER))
         if subfolder:
-            postfix = subfolder
+            return subfolder
         elif share:
-            postfix = share
-        else:
-            return super().default_name
-        return f"{self.manifest.name} {postfix}"
+            return share
+        return None
 
     async def handle_async_init(self) -> None:
         """Handle async initialization of the provider."""

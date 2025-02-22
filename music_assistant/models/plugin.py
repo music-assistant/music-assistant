@@ -56,6 +56,13 @@ class PluginSource(PlayerSource):
         metadata=field_options(serialize="omit", deserialize=pass_through),
         repr=False,
     )
+    # in_use_by specifies the player id that is currently using this plugin (if any)
+    in_use_by: str | None = field(
+        default=None,
+        compare=False,
+        metadata=field_options(serialize="omit", deserialize=pass_through),
+        repr=False,
+    )
 
 
 class PluginProvider(Provider):
@@ -64,14 +71,6 @@ class PluginProvider(Provider):
 
     Plugin Provider implementations should inherit from this base model.
     """
-
-    @property
-    def in_use_by(self) -> str | None:
-        """Return player id that is currently using this plugin (if any)."""
-        for player in self.mass.players:
-            if player.active_source == self.lookup_key:
-                return player.player_id
-        return None
 
     def get_source(self) -> PluginSource:  # type: ignore[return]
         """Get (audio)source details for this plugin."""

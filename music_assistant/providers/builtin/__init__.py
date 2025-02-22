@@ -368,7 +368,7 @@ class BuiltinProvider(MusicProvider):
         if media_type == MediaType.PLAYLIST and prov_item_id in BUILTIN_PLAYLISTS:
             # user wants to disable/remove one of our builtin playlists
             # to prevent it comes back, we mark it as disabled in config
-            self.mass.config.set_raw_provider_config_value(self.instance_id, prov_item_id, False)
+            self.update_config_value(prov_item_id, False)
             return True
         if media_type == MediaType.TRACK:
             # regular manual track URL/path
