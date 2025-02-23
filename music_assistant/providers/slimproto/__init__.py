@@ -381,9 +381,11 @@ class SlimprotoProvider(PlayerProvider):
         elif media.media_type == MediaType.PLUGIN_SOURCE:
             # special case: plugin source stream
             audio_source = self.mass.streams.get_plugin_source_stream(
-                plugin_source_id=media.custom_data["provider"],
+                plugin_source_id=media.custom_data["source_id"],
                 output_format=master_audio_format,
-                player_id=player_id,
+                # need to pass player_id from the PlayerMedia object
+                # because this could have been a group
+                player_id=media.custom_data["player_id"],
             )
         elif media.queue_id.startswith("ugp_"):
             # special case: UGP stream

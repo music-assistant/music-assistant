@@ -1643,9 +1643,10 @@ class PlayerController(CoreController):
                 uri=stream_url,
                 media_type=MediaType.PLUGIN_SOURCE,
                 title=plugin_source.name,
-                queue_id=plugin_source.id,
                 custom_data={
-                    "provider": plugin_source.id,
+                    "provider": plugin_prov.instance_id,
+                    "source_id": plugin_source.id,
+                    "player_id": player.player_id,
                     "audio_format": plugin_source.audio_format,
                 },
             ),
