@@ -34,7 +34,13 @@ class _ProgressHelper:
 
 
 class ProgressGuard:
-    """Class used to avoid ping pong."""
+    """Class used to avoid ping pong between abs and mass.
+
+    We continuously update the progress from mass to abs with the provider's on_played function.
+    We also register callbacks for progress reports from abs to mass. This is not only triggered
+    on external updates, but also on our own update. To avoid messages going back and forth, this
+    class is used.
+    """
 
     def __init__(self) -> None:
         """Init."""
@@ -45,24 +51,26 @@ class ProgressGuard:
         self._min_time_between_updates_ms = 12000
 
     def _get_progress(self, item_id: str, episode_id: str | None = None) -> _ProgressHelper | None:
+        """Get a helper progress."""
         for x in self._progresses:
             if x.id_ == item_id and x.episode_id == episode_id:
                 return x
         return None
 
     def _remove_oldest(self) -> None:
+        """Remove oldest helper progress."""
         progresses = sorted(self._progresses, key=lambda x: x.last_update_ms)
         if len(progresses) > 0:
             self._progresses.remove(progresses[0])
 
     def remove_progress(self, item_id: str, episode_id: str | None = None) -> None:
-        """Remove a progress."""
+        """Remove a helper progress."""
         progress = self._get_progress(item_id=item_id, episode_id=episode_id)
         if progress is not None:
             self._progresses.remove(progress)
 
     def add_progress(self, item_id: str, episode_id: str | None = None) -> None:
-        """Store episode progress."""
+        """Store a timestamp for the last update of an audiobook or podcast episode, mass ids."""
         if len(self._progresses) > self._max_progresses:
             self._remove_oldest()
         self.remove_progress(item_id=item_id, episode_id=episode_id)
@@ -72,7 +80,12 @@ class ProgressGuard:
         self._progresses.append(progress)
 
     def guard_ok_abs(self, abs_progress: MediaProgress) -> bool:
-        """Check if progress update is ok."""
+        """Check, if we may update against an abs media progress.
+
+        The abs media progress has a property last_update_ms, which also reflects non
+        mass external updates. Here, we compare this property against a potential
+        stored one.
+        """
         item_id = abs_progress.library_item_id
         episode_id = abs_progress.episode_id
         stored_progress = self._get_progress(item_id=item_id, episode_id=episode_id)
@@ -84,7 +97,10 @@ class ProgressGuard:
         )
 
     def guard_ok_mass(self, item_id: str, episode_id: str | None = None) -> bool:
-        """Check if progress update is ok."""
+        """Check, if we may update against a mass internal item.
+
+        Here, we use the current time and compare it against the stored time.
+        """
         stored_progress = self._get_progress(item_id=item_id, episode_id=episode_id)
         if stored_progress is None:
             return True

@@ -591,7 +591,7 @@ class Audiobookshelf(MusicProvider):
         if media_type == MediaType.PODCAST_EPISODE:
             abs_podcast_id, abs_episode_id = item_id.split(" ")
 
-            # guard
+            # guard, see progress guard class docstrings for explanation
             if not self.progress_guard.guard_ok_mass(
                 item_id=abs_podcast_id, episode_id=abs_episode_id
             ):
@@ -621,7 +621,7 @@ class Audiobookshelf(MusicProvider):
                 is_finished=fully_played,
             )
         if media_type == MediaType.AUDIOBOOK:
-            # guard
+            # guard, see progress guard class docstrings for explanation
             if not self.progress_guard.guard_ok_mass(item_id=item_id):
                 return
             self.progress_guard.add_progress(item_id=item_id)
@@ -1033,7 +1033,7 @@ class Audiobookshelf(MusicProvider):
             - the item is finished
         But it is _not_called, if a progress is reset/ discarded.
         """
-        # guard
+        # guard, see progress guard class docstrings for explanation
         if not self.progress_guard.guard_ok_abs(abs_progress=progress):
             return
 
@@ -1086,6 +1086,9 @@ class Audiobookshelf(MusicProvider):
 
         for progress in progresses:
             # Guard. Also makes sure, that we don't write to db again if no state change happened.
+            # This is achieved by adding a Helper Progress in the update playlog functions, which
+            # then has the most recent timestamp. If a subsequent progress sent by abs has an older
+            # timestamp, we do not update again.
             if not self.progress_guard.guard_ok_abs(progress):
                 continue
             if not progress.current_time >= 30:
@@ -1148,6 +1151,8 @@ class Audiobookshelf(MusicProvider):
         self.logger.debug(f"Removed {__removed_items} from playlog via user callback socket")
 
     async def _update_playlog_book(self, progress: MediaProgress) -> None:
+        # helper progress also ensures no useless progress updates,
+        # see comment above
         self.progress_guard.add_progress(progress.library_item_id)
         mass_audiobook = await self.mass.music.get_library_item_by_prov_id(
             media_type=MediaType.AUDIOBOOK,
@@ -1164,6 +1169,8 @@ class Audiobookshelf(MusicProvider):
         )
 
     async def _update_playlog_episode(self, progress: MediaProgress) -> None:
+        # helper progress also ensures no useless progress updates,
+        # see comment above
         self.progress_guard.add_progress(progress.library_item_id, progress.episode_id)
         _episode_id = f"{progress.library_item_id} {progress.episode_id}"
         try:
