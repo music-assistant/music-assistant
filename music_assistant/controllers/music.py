@@ -822,7 +822,7 @@ class MusicController(CoreController):
     @api_command("music/mark_played")
     async def mark_item_played(
         self,
-        media_item: MediaItemTypeOrItemMapping,
+        media_item: MediaItemType,
         fully_played: bool = True,
         seconds_played: int | None = None,
     ) -> None:
@@ -891,7 +891,7 @@ class MusicController(CoreController):
     @api_command("music/mark_unplayed")
     async def mark_item_unplayed(
         self,
-        media_item: MediaItemTypeOrItemMapping,
+        media_item: MediaItemType,
     ) -> None:
         """Mark item as unplayed in playlog."""
         # update generic playlog table

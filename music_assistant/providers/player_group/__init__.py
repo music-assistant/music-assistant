@@ -486,9 +486,9 @@ class PlayerGroupProvider(PlayerProvider):
         elif media.media_type == MediaType.PLUGIN_SOURCE:
             # special case: plugin source stream
             audio_source = self.mass.streams.get_plugin_source_stream(
-                plugin_source_id=media.custom_data["provider"],
+                plugin_source_id=media.custom_data["source_id"],
                 output_format=UGP_FORMAT,
-                player_id=player_id,
+                player_id=media.custom_data["player_id"],
             )
         elif media.media_type == MediaType.RADIO:
             # use single item stream request for radio streams
