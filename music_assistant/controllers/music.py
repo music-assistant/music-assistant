@@ -825,6 +825,7 @@ class MusicController(CoreController):
         media_item: MediaItemType,
         fully_played: bool = True,
         seconds_played: int | None = None,
+        is_playing: bool = False,
     ) -> None:
         """Mark item as played in playlog."""
         timestamp = utc_timestamp()
@@ -836,23 +837,24 @@ class MusicController(CoreController):
             # one-off items like TTS or some sound effect etc.
             return
 
-        # update generic playlog table
-        await self.database.insert(
-            DB_TABLE_PLAYLOG,
-            {
-                "item_id": media_item.item_id,
-                "provider": media_item.provider,
-                "media_type": media_item.media_type.value,
-                "name": media_item.name,
-                "image": serialize_to_json(media_item.image.to_dict())
-                if media_item.image
-                else None,
-                "fully_played": fully_played,
-                "seconds_played": seconds_played,
-                "timestamp": timestamp,
-            },
-            allow_replace=True,
-        )
+        # update generic playlog table (when not playing)
+        if not is_playing:
+            await self.database.insert(
+                DB_TABLE_PLAYLOG,
+                {
+                    "item_id": media_item.item_id,
+                    "provider": media_item.provider,
+                    "media_type": media_item.media_type.value,
+                    "name": media_item.name,
+                    "image": serialize_to_json(media_item.image.to_dict())
+                    if media_item.image
+                    else None,
+                    "fully_played": fully_played,
+                    "seconds_played": seconds_played,
+                    "timestamp": timestamp,
+                },
+                allow_replace=True,
+            )
 
         # forward to provider(s) to sync resume state (e.g. for audiobooks)
         for prov_mapping in media_item.provider_mappings:
@@ -863,11 +865,13 @@ class MusicController(CoreController):
                         item_id=prov_mapping.item_id,
                         fully_played=fully_played,
                         position=seconds_played,
+                        is_playing=is_playing,
+                        media_item=media_item,
                     )
                 )
 
         # also update playcount in library table (if fully played)
-        if not fully_played:
+        if not fully_played or is_playing:
             return
         if not (ctrl := self.get_controller(media_item.media_type)):
             # skip non media items (e.g. plugin source)
@@ -912,6 +916,7 @@ class MusicController(CoreController):
                         item_id=prov_mapping.item_id,
                         fully_played=False,
                         position=0,
+                        media_item=media_item,
                     )
                 )
         # also update playcount in library table

@@ -1404,10 +1404,9 @@ class PlayerController(CoreController):
             return self._get_active_source(group_player)
         # if player has plugin source active return that
         for plugin_source in self._get_plugin_sources():
-            if player.active_source == plugin_source.id or (
-                player.current_media
-                and plugin_source.id == player.current_media.queue_id
-                and player.state in (PlayerState.PLAYING, PlayerState.PAUSED)
+            if (
+                player.active_source == plugin_source.id
+                or plugin_source.in_use_by == player.player_id
             ):
                 # copy/set current media if available
                 if plugin_source.metadata:

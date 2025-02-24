@@ -312,8 +312,7 @@ class WebsocketClientHandler:
                     break
 
                 if msg.type != WSMsgType.TEXT:
-                    disconnect_warn = "Received non-Text message."
-                    break
+                    continue
 
                 self._logger.log(VERBOSE_LOG_LEVEL, "Received: %s", msg.data)
 

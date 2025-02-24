@@ -29,7 +29,7 @@ from music_assistant.providers.audible.audible_helper import (
 )
 
 if TYPE_CHECKING:
-    from music_assistant_models.media_items import Audiobook
+    from music_assistant_models.media_items import Audiobook, MediaItemType
     from music_assistant_models.provider import ProviderManifest
     from music_assistant_models.streamdetails import StreamDetails
 
@@ -285,6 +285,8 @@ class Audibleprovider(MusicProvider):
         item_id: str,
         fully_played: bool,
         position: int,
+        is_playing: bool = False,
+        media_item: MediaItemType | None = None,
     ) -> None:
         """
         Handle callback when a (playable) media item has been played.
@@ -295,9 +297,14 @@ class Audibleprovider(MusicProvider):
             - every 30s when a track is playing
 
         Fully played is True when the track has been played to the end.
+
         Position is the last known position of the track in seconds, to sync resume state.
         When fully_played is set to false and position is 0,
         the user marked the item as unplayed in the UI.
+
+        is_playing is True when the track is currently playing.
+
+        media_item is the full media item details of the played/playing track.
         """
         await self.helper.set_last_position(item_id, position)
 

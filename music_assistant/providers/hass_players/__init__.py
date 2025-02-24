@@ -23,10 +23,13 @@ from music_assistant.constants import (
     CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_ENABLE_ICY_METADATA,
+    CONF_ENTRY_ENABLE_ICY_METADATA_HIDDEN,
+    CONF_ENTRY_FLOW_MODE_DEFAULT_ENABLED,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
     CONF_ENTRY_HTTP_PROFILE,
     CONF_ENTRY_HTTP_PROFILE_FORCED_2,
     CONF_ENTRY_OUTPUT_CODEC_DEFAULT_MP3,
+    CONF_ENTRY_OUTPUT_CODEC_ENFORCE_FLAC,
     CONF_ENTRY_OUTPUT_CODEC_ENFORCE_MP3,
     HIDDEN_ANNOUNCE_VOLUME_CONFIG_ENTRIES,
     create_sample_rates_config_entry,
@@ -68,11 +71,23 @@ DEFAULT_PLAYER_CONFIG_ENTRIES = (
     CONF_ENTRY_FLOW_MODE_ENFORCED,
 )
 
+BLOCKLISTED_HASS_INTEGRATIONS = ("alexa_media",)
+WARN_HASS_INTEGRATIONS = ("apple_tv", "cast", "dlna_dmr", "fully_kiosk", "sonos", "snapcast")
+
+CONF_ENTRY_WARN_HASS_INTEGRATION = ConfigEntry(
+    key="warn_hass_integration",
+    type=ConfigEntryType.ALERT,
+    label="Music Assistant has native support for this player type - "
+    "it is strongly recommended to use the native player provider for this player in "
+    "Music Assistant instead of the generic version provided by the Home Assistant provider.",
+)
+
 
 async def _get_hass_media_players(
     hass_prov: HomeAssistantProvider,
 ) -> AsyncGenerator[HassState, None]:
     """Return all HA state objects for (valid) media_player entities."""
+    entity_registry = {x["entity_id"]: x for x in await hass_prov.hass.get_entity_registry()}
     for state in await hass_prov.hass.get_states():
         if not state["entity_id"].startswith("media_player"):
             continue
@@ -85,6 +100,10 @@ async def _get_hass_media_players(
         supported_features = MediaPlayerEntityFeature(state["attributes"]["supported_features"])
         if MediaPlayerEntityFeature.PLAY_MEDIA not in supported_features:
             continue
+        if entity_registry_entry := entity_registry.get(state["entity_id"]):
+            hass_domain = entity_registry_entry["platform"]
+            if hass_domain in BLOCKLISTED_HASS_INTEGRATIONS:
+                continue
         yield state
 
 
@@ -176,6 +195,7 @@ class HomeAssistantPlayers(PlayerProvider):
     ) -> tuple[ConfigEntry, ...]:
         """Return all (provider/player specific) Config Entries for the given player (if any)."""
         base_entries = await super().get_player_config_entries(player_id)
+        base_entries = (*base_entries, *DEFAULT_PLAYER_CONFIG_ENTRIES)
         player = self.mass.players.get(player_id)
         if player and player.extra_data.get("esphome_supported_audio_formats"):
             # optimized config for new ESPHome mediaplayer
@@ -197,10 +217,10 @@ class HomeAssistantPlayers(PlayerProvider):
             return (
                 *base_entries,
                 # New ESPHome mediaplayer (used in Voice PE) uses FLAC 48khz/16 bits
-                CONF_ENTRY_CROSSFADE,
-                CONF_ENTRY_CROSSFADE_DURATION,
                 CONF_ENTRY_FLOW_MODE_ENFORCED,
                 CONF_ENTRY_HTTP_PROFILE_FORCED_2,
+                CONF_ENTRY_OUTPUT_CODEC_ENFORCE_FLAC,
+                CONF_ENTRY_ENABLE_ICY_METADATA_HIDDEN,
                 create_sample_rates_config_entry(
                     supported_sample_rates=supported_sample_rates,
                     supported_bit_depths=supported_bit_depths,
@@ -211,7 +231,19 @@ class HomeAssistantPlayers(PlayerProvider):
                 *HIDDEN_ANNOUNCE_VOLUME_CONFIG_ENTRIES,
             )
 
-        return base_entries + DEFAULT_PLAYER_CONFIG_ENTRIES
+        # add alert if player is a known player type that has a native provider in MA
+        if player and player.extra_data.get("hass_domain") in WARN_HASS_INTEGRATIONS:
+            base_entries = (CONF_ENTRY_WARN_HASS_INTEGRATION, *base_entries)
+
+        # enable flow mode by default if player does not report enqueue support
+        if (
+            player
+            and MediaPlayerEntityFeature.MEDIA_ENQUEUE
+            not in player.extra_data["hass_supported_features"]
+        ):
+            base_entries = (*base_entries, CONF_ENTRY_FLOW_MODE_DEFAULT_ENABLED)
+
+        return base_entries
 
     async def cmd_stop(self, player_id: str) -> None:
         """Send STOP command to given player.
@@ -473,6 +505,7 @@ class HomeAssistantPlayers(PlayerProvider):
         ):
             player.supported_features.add(PlayerFeature.POWER)
             player.powered = state["state"] not in OFF_STATES
+        player.extra_data["hass_supported_features"] = hass_supported_features
 
         self._update_player_attributes(player, state["attributes"])
         await self.mass.players.register_or_update(player)

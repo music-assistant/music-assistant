@@ -35,6 +35,7 @@ from music_assistant.constants import (
     CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
+    CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
     DEFAULT_PCM_FORMAT,
     create_sample_rates_config_entry,
 )
@@ -421,6 +422,7 @@ class SnapCastProvider(PlayerProvider):
             CONF_ENTRY_CROSSFADE,
             CONF_ENTRY_CROSSFADE_DURATION,
             CONF_ENTRY_SAMPLE_RATES_SNAPCAST,
+            CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
         )
 
     async def cmd_volume_set(self, player_id: str, volume_level: int) -> None:

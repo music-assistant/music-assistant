@@ -431,7 +431,7 @@ class PlayerQueuesController(CoreController):
                         )
                     )
                     if option == QueueOption.REPLACE:
-                        self.clear(queue_id)
+                        self.clear(queue_id, skip_stop=True)
                 # collect media_items to play
                 if radio_mode:
                     radio_source.append(media_item)
@@ -578,11 +578,11 @@ class PlayerQueuesController(CoreController):
         self.update_items(queue_id, queue_items)
 
     @api_command("player_queues/clear")
-    def clear(self, queue_id: str) -> None:
+    def clear(self, queue_id: str, skip_stop: bool = False) -> None:
         """Clear all items in the queue."""
         queue = self._queues[queue_id]
         queue.radio_source = []
-        if queue.state != PlayerState.IDLE:
+        if queue.state != PlayerState.IDLE and not skip_stop:
             self.mass.create_task(self.stop(queue_id))
         queue.current_index = None
         queue.current_item = None
@@ -1925,6 +1925,7 @@ class PlayerQueuesController(CoreController):
                 item_to_report.media_item,
                 fully_played=fully_played,
                 seconds_played=seconds_played,
+                is_playing=is_playing,
             )
         )
         # signal 'media item played' event,
