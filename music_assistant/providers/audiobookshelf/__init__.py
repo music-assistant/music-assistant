@@ -33,10 +33,12 @@ from music_assistant_models.enums import (
 )
 from music_assistant_models.errors import LoginFailed, MediaNotFoundError
 from music_assistant_models.media_items import (
+    Audiobook,
     AudioFormat,
     BrowseFolder,
     MediaItemType,
     MediaItemTypeOrItemMapping,
+    PodcastEpisode,
 )
 from music_assistant_models.streamdetails import StreamDetails
 
@@ -69,7 +71,7 @@ if TYPE_CHECKING:
     from aioaudiobookshelf.schema.events_socket import LibraryItemRemoved
     from aioaudiobookshelf.schema.media_progress import MediaProgress
     from aioaudiobookshelf.schema.user import User
-    from music_assistant_models.media_items import Audiobook, Podcast, PodcastEpisode
+    from music_assistant_models.media_items import Podcast
     from music_assistant_models.provider import ProviderManifest
 
     from music_assistant.mass import MusicAssistant
@@ -609,6 +611,9 @@ class Audiobookshelf(MusicProvider):
                 return
             self.progress_guard.add_progress(item_id=abs_podcast_id, episode_id=abs_episode_id)
 
+            if media_item is None or not isinstance(media_item, PodcastEpisode):
+                return
+
             if position == 0 and not fully_played:
                 # marked unplayed
                 mp = await self._client.get_my_media_progress(
@@ -619,10 +624,9 @@ class Audiobookshelf(MusicProvider):
                     self.logger.debug(f"Removed media progress of {media_type.value}.")
                     return
 
-            mass_podcast_episode = await self.get_podcast_episode(item_id)
-            duration = mass_podcast_episode.duration
+            duration = media_item.duration
             self.logger.debug(
-                f"Updating media progress of {media_type.value}, title {mass_podcast_episode.name}."
+                f"Updating media progress of {media_type.value}, title {media_item.name}."
             )
             await self._client.update_my_media_progress(
                 item_id=abs_podcast_id,
@@ -631,11 +635,15 @@ class Audiobookshelf(MusicProvider):
                 progress_seconds=position,
                 is_finished=fully_played,
             )
+
         if media_type == MediaType.AUDIOBOOK:
             # guard, see progress guard class docstrings for explanation
             if not self.progress_guard.guard_ok_mass(item_id=item_id):
                 return
             self.progress_guard.add_progress(item_id=item_id)
+
+            if media_item is None or not isinstance(media_item, Audiobook):
+                return
 
             if position == 0 and not fully_played:
                 # marked unplayed
@@ -645,9 +653,8 @@ class Audiobookshelf(MusicProvider):
                     self.logger.debug(f"Removed media progress of {media_type.value}.")
                 return
 
-            mass_audiobook = await self.get_audiobook(item_id)
-            duration = mass_audiobook.duration
-            self.logger.debug(f"Updating {media_type.value} named {mass_audiobook.name} progress")
+            duration = media_item.duration
+            self.logger.debug(f"Updating {media_type.value} named {media_item.name} progress")
             await self._client.update_my_media_progress(
                 item_id=item_id,
                 duration_seconds=duration,
