@@ -126,23 +126,25 @@ class ITunesPodcastsProvider(MusicProvider):
         if MediaType.PODCAST not in media_types:
             return result
 
-        term = urllib.parse.quote_plus(search_query)
         if limit < 1:
             limit = 1
         elif limit > 200:
             limit = 200
         country = str(self.config.get_value(CONF_LOCALE))
         explicit = "Yes" if bool(self.config.get_value(CONF_EXPLICIT)) else "No"
-        params = {
-            "media": "podcast",
-            "entity": "podcast",
-            "country": country,
-            "attribute": "titleTerm",
-            "explicit": explicit,
-            "limit": limit,
-            "term": term,
-        }
-        url = f"https://itunes.apple.com/search?{urllib.parse.urlencode(params)}"
+        params = urllib.parse.urlencode(
+            {
+                "media": "podcast",
+                "entity": "podcast",
+                "country": country,
+                "attribute": "titleTerm",
+                "explicit": explicit,
+                "limit": limit,
+                "term": search_query,
+            },
+            quote_via=urllib.parse.quote_plus,
+        )
+        url = f"https://itunes.apple.com/search?{params}"
         self.logger.debug(f"Search url: {url}")
         result.podcasts = await self._perform_search(url)
 
