@@ -448,11 +448,11 @@ class MyDemoMusicprovider(MusicProvider):
     async def on_played(
         self,
         media_type: MediaType,
-        item_id: str,
+        prov_item_id: str,
         fully_played: bool,
         position: int,
+        media_item: MediaItemType,
         is_playing: bool = False,
-        media_item: MediaItemType | None = None,
     ) -> None:
         """
         Handle callback when a (playable) media item has been played.

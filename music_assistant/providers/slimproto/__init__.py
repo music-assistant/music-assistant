@@ -647,7 +647,7 @@ class SlimprotoProvider(PlayerProvider):
             # player does not yet exist, create it
             player = Player(
                 player_id=player_id,
-                provider=self.lookup_key,
+                provider=self.instance_id,
                 type=PlayerType.PLAYER,
                 name=slimplayer.name,
                 available=True,
@@ -666,7 +666,7 @@ class SlimprotoProvider(PlayerProvider):
                     PlayerFeature.VOLUME_MUTE,
                     PlayerFeature.ENQUEUE,
                 },
-                can_group_with={self.lookup_key},
+                can_group_with={self.instance_id},
             )
             await self.mass.players.register_or_update(player)
 

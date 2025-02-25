@@ -71,8 +71,8 @@ DEFAULT_PLAYER_CONFIG_ENTRIES = (
     CONF_ENTRY_FLOW_MODE_ENFORCED,
 )
 
-BLOCKLISTED_HASS_INTEGRATIONS = ("alexa_media",)
-WARN_HASS_INTEGRATIONS = ("apple_tv", "cast", "dlna_dmr", "fully_kiosk", "sonos", "snapcast")
+BLOCKLISTED_HASS_INTEGRATIONS = ("alexa_media", "apple_tv")
+WARN_HASS_INTEGRATIONS = ("cast", "dlna_dmr", "fully_kiosk", "sonos", "snapcast")
 
 CONF_ENTRY_WARN_HASS_INTEGRATION = ConfigEntry(
     key="warn_hass_integration",
@@ -158,7 +158,9 @@ async def get_config_entries(
             required=True,
             options=player_entities,
             description="Specify which HA media_player entity id's you "
-            "like to import as players in Music Assistant.",
+            "like to import as players in Music Assistant.\n\n"
+            "Note that only Media player entities will be listed which are "
+            "compatible with Music Assistant.",
         ),
     )
 
@@ -305,6 +307,10 @@ class HomeAssistantPlayers(PlayerProvider):
             # tell esphome mediaproxy to bypass the proxy,
             # as MA already delivers an optimized stream
             extra_data["bypass_proxy"] = True
+
+        # stop the player if it is already playing
+        if player.state == PlayerState.PLAYING:
+            await self.cmd_stop(player_id)
 
         await self.hass_prov.hass.call_service(
             domain="media_player",
@@ -472,7 +478,7 @@ class HomeAssistantPlayers(PlayerProvider):
 
         player = Player(
             player_id=state["entity_id"],
-            provider=self.lookup_key,
+            provider=self.instance_id,
             type=PlayerType.PLAYER,
             name=state["attributes"]["friendly_name"],
             available=state["state"] not in UNAVAILABLE_STATES,

@@ -862,11 +862,11 @@ class MusicController(CoreController):
                 self.mass.create_task(
                     music_prov.on_played(
                         media_type=media_item.media_type,
-                        item_id=prov_mapping.item_id,
+                        prov_item_id=prov_mapping.item_id,
                         fully_played=fully_played,
                         position=seconds_played,
-                        is_playing=is_playing,
                         media_item=media_item,
+                        is_playing=is_playing,
                     )
                 )
 
@@ -913,7 +913,7 @@ class MusicController(CoreController):
                 self.mass.create_task(
                     music_prov.on_played(
                         media_type=media_item.media_type,
-                        item_id=prov_mapping.item_id,
+                        prov_item_id=prov_mapping.item_id,
                         fully_played=False,
                         position=0,
                         media_item=media_item,

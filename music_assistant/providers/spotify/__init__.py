@@ -315,31 +315,46 @@ class SpotifyProvider(MusicProvider):
             return searchresult
         searchtype = ",".join(searchtypes)
         search_query = search_query.replace("'", "")
-        api_result = await self._get_data("search", q=search_query, type=searchtype, limit=limit)
-        if "artists" in api_result:
-            searchresult.artists += [
-                self._parse_artist(item)
-                for item in api_result["artists"]["items"]
-                if (item and item["id"] and item["name"])
-            ]
-        if "albums" in api_result:
-            searchresult.albums += [
-                self._parse_album(item)
-                for item in api_result["albums"]["items"]
-                if (item and item["id"])
-            ]
-        if "tracks" in api_result:
-            searchresult.tracks += [
-                self._parse_track(item)
-                for item in api_result["tracks"]["items"]
-                if (item and item["id"])
-            ]
-        if "playlists" in api_result:
-            searchresult.playlists += [
-                self._parse_playlist(item)
-                for item in api_result["playlists"]["items"]
-                if (item and item["id"])
-            ]
+        offset = 0
+        page_limit = min(limit, 50)
+        while True:
+            items_received = 0
+            api_result = await self._get_data(
+                "search", q=search_query, type=searchtype, limit=page_limit, offset=offset
+            )
+            if "artists" in api_result:
+                searchresult.artists += [
+                    self._parse_artist(item)
+                    for item in api_result["artists"]["items"]
+                    if (item and item["id"] and item["name"])
+                ]
+                items_received += len(api_result["artists"]["items"])
+            if "albums" in api_result:
+                searchresult.albums += [
+                    self._parse_album(item)
+                    for item in api_result["albums"]["items"]
+                    if (item and item["id"])
+                ]
+                items_received += len(api_result["albums"]["items"])
+            if "tracks" in api_result:
+                searchresult.tracks += [
+                    self._parse_track(item)
+                    for item in api_result["tracks"]["items"]
+                    if (item and item["id"])
+                ]
+                items_received += len(api_result["tracks"]["items"])
+            if "playlists" in api_result:
+                searchresult.playlists += [
+                    self._parse_playlist(item)
+                    for item in api_result["playlists"]["items"]
+                    if (item and item["id"])
+                ]
+                items_received += len(api_result["playlists"]["items"])
+            offset += page_limit
+            if offset >= limit:
+                break
+            if items_received < page_limit:
+                break
         return searchresult
 
     async def get_library_artists(self) -> AsyncGenerator[Artist, None]:
@@ -362,13 +377,13 @@ class SpotifyProvider(MusicProvider):
 
     async def get_library_albums(self) -> AsyncGenerator[Album, None]:
         """Retrieve library albums from the provider."""
-        for item in await self._get_all_items("me/albums"):
+        async for item in self._get_all_items("me/albums"):
             if item["album"] and item["album"]["id"]:
                 yield self._parse_album(item["album"])
 
     async def get_library_tracks(self) -> AsyncGenerator[Track, None]:
         """Retrieve library tracks from the provider."""
-        for item in await self._get_all_items("me/tracks"):
+        async for item in self._get_all_items("me/tracks"):
             if item and item["track"]["id"]:
                 yield self._parse_track(item["track"])
 
@@ -409,7 +424,7 @@ class SpotifyProvider(MusicProvider):
     async def get_library_playlists(self) -> AsyncGenerator[Playlist, None]:
         """Retrieve playlists from the provider."""
         yield await self._get_liked_songs_playlist()
-        for item in await self._get_all_items("me/playlists"):
+        async for item in self._get_all_items("me/playlists"):
             if item and item["id"]:
                 yield self._parse_playlist(item)
 
@@ -440,7 +455,7 @@ class SpotifyProvider(MusicProvider):
         """Get all album tracks for given album id."""
         return [
             self._parse_track(item)
-            for item in await self._get_all_items(f"albums/{prov_album_id}/tracks")
+            async for item in self._get_all_items(f"albums/{prov_album_id}/tracks")
             if item["id"]
         ]
 
@@ -468,7 +483,7 @@ class SpotifyProvider(MusicProvider):
         """Get a list of all albums for the given artist."""
         return [
             self._parse_album(item)
-            for item in await self._get_all_items(
+            async for item in self._get_all_items(
                 f"artists/{prov_artist_id}/albums?include_groups=album,single,compilation"
             )
             if (item and item["id"])
@@ -595,7 +610,7 @@ class SpotifyProvider(MusicProvider):
                 # get first chunk with timeout, to catch the issue where librespot is not starting
                 # which seems to happen from time to time (but rarely)
                 try:
-                    chunk = await asyncio.wait_for(librespot_proc.read(64000), timeout=2)
+                    chunk = await asyncio.wait_for(librespot_proc.read(64000), timeout=3)
                     yield chunk
                 except TimeoutError:
                     raise AudioError("No audio received from librespot within timeout")
@@ -875,11 +890,12 @@ class SpotifyProvider(MusicProvider):
             self.logger.info("Successfully logged in to Spotify as %s", userinfo["display_name"])
         return auth_info
 
-    async def _get_all_items(self, endpoint, key="items", **kwargs) -> list[dict]:
+    async def _get_all_items(
+        self, endpoint, key="items", **kwargs
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Get all items from a paged list."""
         limit = 50
         offset = 0
-        all_items = []
         while True:
             kwargs["limit"] = limit
             kwargs["offset"] = offset
@@ -887,10 +903,10 @@ class SpotifyProvider(MusicProvider):
             offset += limit
             if not result or key not in result or not result[key]:
                 break
-            all_items += result[key]
+            for item in result[key]:
+                yield item
             if len(result[key]) < limit:
                 break
-        return all_items
 
     @throttle_with_retries
     async def _get_data(self, endpoint, **kwargs) -> dict[str, Any]:

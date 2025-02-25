@@ -429,7 +429,7 @@ class SonosPlayerProvider(PlayerProvider):
         if not (mass_player := self.mass.players.get(soco.uid)):
             mass_player = Player(
                 player_id=soco.uid,
-                provider=self.lookup_key,
+                provider=self.instance_id,
                 type=PlayerType.PLAYER,
                 name=soco.player_name,
                 available=True,
@@ -441,7 +441,7 @@ class SonosPlayerProvider(PlayerProvider):
                 ),
                 needs_poll=True,
                 poll_interval=30,
-                can_group_with={self.lookup_key},
+                can_group_with={self.instance_id},
             )
         self.sonosplayers[player_id] = sonos_player = SonosPlayer(
             self,

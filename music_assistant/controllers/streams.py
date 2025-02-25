@@ -354,6 +354,7 @@ class StreamsController(CoreController):
             filter_params=get_player_filter_params(
                 self.mass, queue_player.player_id, pcm_format, output_format
             ),
+            chunk_size=get_chunksize(output_format),
         ):
             try:
                 await resp.write(chunk)
@@ -450,7 +451,7 @@ class StreamsController(CoreController):
             filter_params=get_player_filter_params(
                 self.mass, queue_player.player_id, flow_pcm_format, output_format
             ),
-            chunk_size=icy_meta_interval if enable_icy else None,
+            chunk_size=icy_meta_interval if enable_icy else get_chunksize(output_format),
         ):
             try:
                 await resp.write(chunk)
@@ -882,6 +883,7 @@ class StreamsController(CoreController):
                 output_format=output_format,
                 filter_params=player_filter_params,
                 extra_input_args=["-re"],
+                chunk_size=int(get_chunksize(output_format) / 10),
             ):
                 yield chunk
         finally:

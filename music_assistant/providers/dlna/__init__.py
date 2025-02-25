@@ -480,7 +480,7 @@ class DLNAPlayerProvider(PlayerProvider):
                     udn=udn,
                     player=Player(
                         player_id=udn,
-                        provider=self.lookup_key,
+                        provider=self.instance_id,
                         type=PlayerType.PLAYER,
                         name=udn,
                         available=False,

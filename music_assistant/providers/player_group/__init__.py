@@ -291,7 +291,7 @@ class PlayerGroupProvider(PlayerProvider):
             return base_entries  # guard
         if TYPE_CHECKING:
             player_provider = cast(PlayerProvider, player_provider)
-        assert player_provider.lookup_key != self.lookup_key
+        assert player_provider.instance_id != self.instance_id
         if not (child_player := next((x for x in player_provider.players), None)):
             return base_entries  # guard
 
@@ -584,7 +584,7 @@ class PlayerGroupProvider(PlayerProvider):
             if ProviderFeature.SYNC_PLAYERS not in player_prov.supported_features:
                 msg = f"Provider {player_prov.name} does not support creating groups"
                 raise UnsupportedFeaturedException(msg)
-            group_type = player_prov.lookup_key  # just in case only domain was sent
+            group_type = player_prov.instance_id  # just in case only domain was sent
 
         new_group_id = f"{prefix}{shortuuid.random(8).lower()}"
         # cleanup list, just in case the frontend sends some garbage
@@ -730,7 +730,7 @@ class PlayerGroupProvider(PlayerProvider):
     async def _register_all_players(self) -> None:
         """Register all (virtual/fake) group players in the Player controller."""
         player_configs = await self.mass.config.get_player_configs(
-            self.lookup_key, include_values=True
+            self.instance_id, include_values=True
         )
         for player_config in player_configs:
             if self.mass.players.get(player_config.player_id):
@@ -773,9 +773,9 @@ class PlayerGroupProvider(PlayerProvider):
             )
             can_group_with = {
                 # allow grouping with all providers, except the playergroup provider itself
-                x.lookup_key
+                x.instance_id
                 for x in self.mass.players.providers
-                if x.lookup_key != self.lookup_key
+                if x.instance_id != self.instance_id
             }
             player_features.add(PlayerFeature.MULTI_DEVICE_DSP)
         elif player_provider := self.mass.get_provider(group_type):
@@ -784,7 +784,7 @@ class PlayerGroupProvider(PlayerProvider):
                 player_provider = cast(PlayerProvider, player_provider)
             model_name = "Sync Group"
             manufacturer = self.mass.get_provider(group_type).name
-            can_group_with = {player_provider.lookup_key}
+            can_group_with = {player_provider.instance_id}
             for feature in (PlayerFeature.PAUSE, PlayerFeature.VOLUME_MUTE, PlayerFeature.ENQUEUE):
                 if all(feature in x.supported_features for x in player_provider.players):
                     player_features.add(feature)
@@ -800,7 +800,7 @@ class PlayerGroupProvider(PlayerProvider):
 
         player = Player(
             player_id=group_player_id,
-            provider=self.lookup_key,
+            provider=self.instance_id,
             type=PlayerType.GROUP,
             name=name,
             available=True,
@@ -904,12 +904,12 @@ class PlayerGroupProvider(PlayerProvider):
         if group_type == GROUP_TYPE_UNIVERSAL:
             can_group_with = {
                 # allow grouping with all providers, except the playergroup provider itself
-                x.lookup_key
+                x.instance_id
                 for x in self.mass.players.providers
-                if x.lookup_key != self.lookup_key
+                if x.instance_id != self.instance_id
             }
         elif sync_player_provider := self.mass.get_provider(group_type):
-            can_group_with = {sync_player_provider.lookup_key}
+            can_group_with = {sync_player_provider.instance_id}
         else:
             can_group_with = {}
         player.can_group_with = can_group_with
@@ -1028,7 +1028,7 @@ class PlayerGroupProvider(PlayerProvider):
                 x
                 for x in members
                 if (player := self.mass.players.get(x))
-                and player.provider == player_provider.lookup_key
+                and player.provider == player_provider.instance_id
             ]
         # cleanup members - filter out impossible choices
         syncgroup_childs: list[str] = []

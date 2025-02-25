@@ -561,11 +561,11 @@ class Audiobookshelf(MusicProvider):
     async def on_played(
         self,
         media_type: MediaType,
-        item_id: str,
+        prov_item_id: str,
         fully_played: bool,
         position: int,
+        media_item: MediaItemType,
         is_playing: bool = False,
-        media_item: MediaItemType | None = None,
     ) -> None:
         """Update progress in Audiobookshelf.
 
@@ -577,7 +577,7 @@ class Audiobookshelf(MusicProvider):
 
         """
         if media_type == MediaType.PODCAST_EPISODE:
-            abs_podcast_id, abs_episode_id = item_id.split(" ")
+            abs_podcast_id, abs_episode_id = prov_item_id.split(" ")
 
             # guard, see progress guard class docstrings for explanation
             if not self.progress_guard.guard_ok_mass(
@@ -613,16 +613,16 @@ class Audiobookshelf(MusicProvider):
 
         if media_type == MediaType.AUDIOBOOK:
             # guard, see progress guard class docstrings for explanation
-            if not self.progress_guard.guard_ok_mass(item_id=item_id):
+            if not self.progress_guard.guard_ok_mass(item_id=prov_item_id):
                 return
-            self.progress_guard.add_progress(item_id=item_id)
+            self.progress_guard.add_progress(item_id=prov_item_id)
 
             if media_item is None or not isinstance(media_item, Audiobook):
                 return
 
             if position == 0 and not fully_played:
                 # marked unplayed
-                mp = await self._client.get_my_media_progress(item_id=item_id)
+                mp = await self._client.get_my_media_progress(item_id=prov_item_id)
                 if mp is not None:
                     await self._client.remove_my_media_progress(media_progress_id=mp.id_)
                     self.logger.debug(f"Removed media progress of {media_type.value}.")
@@ -631,7 +631,7 @@ class Audiobookshelf(MusicProvider):
             duration = media_item.duration
             self.logger.debug(f"Updating {media_type.value} named {media_item.name} progress")
             await self._client.update_my_media_progress(
-                item_id=item_id,
+                item_id=prov_item_id,
                 duration_seconds=duration,
                 progress_seconds=position,
                 is_finished=fully_played,

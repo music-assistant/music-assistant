@@ -116,10 +116,41 @@ class PlaylistController(MediaControllerBase[Playlist]):
             cur_playlist_track_uris.add(item.item_id)
             cur_playlist_track_uris.add(item.uri)
 
+        # unwrap all uri's to track uri's
+        unwrapped_uris: list[str] = []
+        for uri in uris:
+            # URI could be a playlist or album uri, unwrap it
+            if not ("://" in uri and len(uri.split("/")) >= 4):
+                # NOT a music assistant-style uri (provider://media_type/item_id)
+                self.logger.warning(
+                    "Not adding %s to playlist %s - not a valid uri", uri, playlist.name
+                )
+                continue
+            # music assistant-style uri
+            # provider://media_type/item_id
+            provider_instance_id_or_domain, rest = uri.split("://", 1)
+            media_type_str, item_id = rest.split("/", 1)
+            media_type = MediaType(media_type_str)
+            if media_type == MediaType.ALBUM:
+                for track in await self.mass.music.albums.tracks(
+                    item_id, provider_instance_id_or_domain
+                ):
+                    unwrapped_uris.append(track.uri)
+            elif media_type == MediaType.PLAYLIST:
+                for track in await self.tracks(item_id, provider_instance_id_or_domain):
+                    unwrapped_uris.append(track.uri)
+            elif media_type == MediaType.TRACK:
+                unwrapped_uris.append(uri)
+            else:
+                self.logger.warning(
+                    "Not adding %s to playlist %s - not a track", uri, playlist.name
+                )
+                continue
+
         # work out the track id's that need to be added
         # filter out duplicates and items that not exist on the provider.
         ids_to_add: set[str] = set()
-        for uri in uris:
+        for uri in unwrapped_uris:
             # skip if item already in the playlist
             if uri in cur_playlist_track_uris:
                 self.logger.info(
@@ -138,14 +169,6 @@ class PlaylistController(MediaControllerBase[Playlist]):
                     "Not adding %s to playlist %s - it already exists",
                     uri,
                     playlist.name,
-                )
-                continue
-
-            # skip non-track items
-            # TODO: revisit this once we support audiobooks and podcasts ?
-            if media_type != MediaType.TRACK:
-                self.logger.warning(
-                    "Not adding %s to playlist %s - not a track", uri, playlist.name
                 )
                 continue
 

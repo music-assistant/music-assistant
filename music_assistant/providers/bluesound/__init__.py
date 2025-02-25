@@ -277,7 +277,7 @@ class BluesoundPlayerProvider(PlayerProvider):
 
         bluos_player.mass_player = mass_player = Player(
             player_id=self.player_id,
-            provider=self.lookup_key,
+            provider=self.instance_id,
             type=PlayerType.PLAYER,
             name=name,
             available=True,
@@ -294,7 +294,7 @@ class BluesoundPlayerProvider(PlayerProvider):
             },
             needs_poll=True,
             poll_interval=30,
-            can_group_with={self.lookup_key},
+            can_group_with={self.instance_id},
         )
         await self.mass.players.register(mass_player)
 

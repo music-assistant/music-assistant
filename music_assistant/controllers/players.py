@@ -933,9 +933,9 @@ class PlayerController(CoreController):
             msg = f"Player {player_id} is already registered"
             raise AlreadyRegisteredError(msg)
 
-        # make sure that the player's provider is set to the lookup key (=instance id)
+        # make sure that the player's provider is set to the instance_id
         prov = self.mass.get_provider(player.provider)
-        if not prov or prov.lookup_key != player.provider:
+        if not prov or prov.instance_id != player.provider:
             raise RuntimeError(f"Invalid provider ID given: {player.provider}")
 
         # make sure a default config exists

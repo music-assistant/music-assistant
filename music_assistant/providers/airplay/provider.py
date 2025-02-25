@@ -522,7 +522,7 @@ class AirplayProvider(PlayerProvider):
             volume = FALLBACK_VOLUME
         mass_player = Player(
             player_id=player_id,
-            provider=self.lookup_key,
+            provider=self.instance_id,
             type=PlayerType.PLAYER,
             name=display_name,
             available=True,
@@ -538,7 +538,7 @@ class AirplayProvider(PlayerProvider):
                 PlayerFeature.VOLUME_SET,
             },
             volume_level=volume,
-            can_group_with={self.lookup_key},
+            can_group_with={self.instance_id},
             enabled_by_default=not is_broken_raop_model(manufacturer, model),
         )
         await self.mass.players.register_or_update(mass_player)

@@ -356,11 +356,11 @@ class MusicProvider(Provider):
     async def on_played(
         self,
         media_type: MediaType,
-        item_id: str,
+        prov_item_id: str,
         fully_played: bool,
         position: int,
+        media_item: MediaItemType,
         is_playing: bool = False,
-        media_item: MediaItemType | None = None,
     ) -> None:
         """
         Handle callback when a (playable) media item has been played.
@@ -376,9 +376,9 @@ class MusicProvider(Provider):
         When fully_played is set to false and position is 0,
         the user marked the item as unplayed in the UI.
 
-        is_playing is True when the track is currently playing.
-
         media_item is the full media item details of the played/playing track.
+
+        is_playing is True when the track is currently playing.
         """
 
     async def resolve_image(self, path: str) -> str | bytes:
