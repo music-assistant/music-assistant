@@ -73,7 +73,7 @@ def parse_podcast(
         mass_podcast.metadata.genres = set(abs_podcast.media.metadata.genres)
     mass_podcast.metadata.release_date = abs_podcast.media.metadata.release_date
 
-    if isinstance(abs_podcast, AbsLibraryItemExpandedPodcast):
+    if isinstance(abs_podcast, AbsLibraryItemExpandedPodcast | AbsLibraryItemPodcast):
         mass_podcast.total_episodes = len(abs_podcast.media.episodes)
     elif isinstance(abs_podcast, AbsLibraryItemMinifiedPodcast):
         mass_podcast.total_episodes = abs_podcast.media.num_episodes

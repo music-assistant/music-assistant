@@ -279,11 +279,8 @@ class Audiobookshelf(MusicProvider):
         return abs_podcast
 
     async def get_podcast(self, prov_podcast_id: str) -> Podcast:
-        """Get single podcast.
-
-        Basis information is sufficient.
-        """
-        abs_podcast = await self._client.get_library_item_podcast(podcast_id=prov_podcast_id)
+        """Get single podcast."""
+        abs_podcast = await self._get_abs_expanded_podcast(prov_podcast_id=prov_podcast_id)
         return parse_podcast(
             abs_podcast=abs_podcast,
             lookup_key=self.lookup_key,
