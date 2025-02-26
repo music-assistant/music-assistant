@@ -313,8 +313,34 @@ class AudibleHelper:
             return 0
 
     async def set_last_position(self, asin: str, pos: int) -> None:
-        """Report last position."""
-        # TODO: Implement position reporting
+        """Report last position to Audible.
+
+        Args:
+            asin: The audiobook ID
+            pos: Position in seconds
+        """
+        if not asin or asin == "error" or pos <= 0:
+            return
+
+        try:
+            position_ms = pos * 1000
+
+            stream_details = await self.get_stream(asin=asin)
+            acr = stream_details.data.get("acr")
+
+            if not acr:
+                self.logger.warning(f"No ACR available for ASIN {asin}, cannot report position")
+                return
+
+            # Report position to Audible
+            await self.client.put(
+                f"lastpositions/{asin}", body={"acr": acr, "asin": asin, "position_ms": position_ms}
+            )
+
+            self.logger.debug(f"Successfully reported position {position_ms}ms for ASIN {asin}")
+
+        except Exception as exc:
+            self.logger.error(f"Error reporting position for ASIN {asin}: {exc}")
 
     async def _call_api(self, path: str, **kwargs: Any) -> Any:
         response = None
