@@ -35,6 +35,7 @@ from music_assistant.constants import (
     CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
+    CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
     DEFAULT_PCM_FORMAT,
     create_sample_rates_config_entry,
 )
@@ -369,7 +370,7 @@ class SnapCastProvider(PlayerProvider):
             )
             player = Player(
                 player_id=player_id,
-                provider=self.lookup_key,
+                provider=self.instance_id,
                 type=PlayerType.PLAYER,
                 name=snap_client.friendly_name,
                 available=snap_client.connected,
@@ -384,7 +385,7 @@ class SnapCastProvider(PlayerProvider):
                     PlayerFeature.VOLUME_MUTE,
                 },
                 synced_to=self._synced_to(player_id),
-                can_group_with={self.lookup_key},
+                can_group_with={self.instance_id},
             )
         asyncio.run_coroutine_threadsafe(
             self.mass.players.register_or_update(player), loop=self.mass.loop
@@ -421,6 +422,7 @@ class SnapCastProvider(PlayerProvider):
             CONF_ENTRY_CROSSFADE,
             CONF_ENTRY_CROSSFADE_DURATION,
             CONF_ENTRY_SAMPLE_RATES_SNAPCAST,
+            CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
         )
 
     async def cmd_volume_set(self, player_id: str, volume_level: int) -> None:

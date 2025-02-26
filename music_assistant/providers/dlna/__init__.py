@@ -480,7 +480,7 @@ class DLNAPlayerProvider(PlayerProvider):
                     udn=udn,
                     player=Player(
                         player_id=udn,
-                        provider=self.lookup_key,
+                        provider=self.instance_id,
                         type=PlayerType.PLAYER,
                         name=udn,
                         available=False,
@@ -591,6 +591,8 @@ class DLNAPlayerProvider(PlayerProvider):
 
     def _set_player_features(self, dlna_player: DLNAPlayer) -> None:
         """Set Player Features based on config values and capabilities."""
+        if not dlna_player.device:
+            return
         supported_features: set[PlayerFeature] = {
             # there is no way to check if a dlna player support enqueuing
             # so we simply assume it does and if it doesn't

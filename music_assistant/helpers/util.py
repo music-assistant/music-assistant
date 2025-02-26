@@ -490,7 +490,7 @@ async def close_async_generator(agen: AsyncGenerator[Any, None]) -> None:
     """Force close an async generator."""
     task = asyncio.create_task(agen.__anext__())
     task.cancel()
-    with suppress(asyncio.CancelledError):
+    with suppress(asyncio.CancelledError, StopAsyncIteration):
         await task
     await agen.aclose()
 

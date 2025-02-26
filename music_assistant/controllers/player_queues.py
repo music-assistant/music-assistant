@@ -55,7 +55,12 @@ from music_assistant_models.player import PlayerMedia
 from music_assistant_models.player_queue import PlayerQueue
 from music_assistant_models.queue_item import QueueItem
 
-from music_assistant.constants import CONF_CROSSFADE, CONF_FLOW_MODE, MASS_LOGO_ONLINE
+from music_assistant.constants import (
+    CONF_CROSSFADE,
+    CONF_FLOW_MODE,
+    MASS_LOGO_ONLINE,
+    VERBOSE_LOG_LEVEL,
+)
 from music_assistant.helpers.api import api_command
 from music_assistant.helpers.audio import get_stream_details, get_stream_dsp_details
 from music_assistant.helpers.throttle_retry import BYPASS_THROTTLER
@@ -123,6 +128,7 @@ class PlayerQueuesController(CoreController):
         self._queues: dict[str, PlayerQueue] = {}
         self._queue_items: dict[str, list[QueueItem]] = {}
         self._prev_states: dict[str, CompareState] = {}
+        self._transitioning_players: set[str] = set()
         self.manifest.name = "Player Queues controller"
         self.manifest.description = (
             "Music Assistant's core controller which manages the queues for all players."
@@ -360,7 +366,7 @@ class PlayerQueuesController(CoreController):
     async def play_media(
         self,
         queue_id: str,
-        media: MediaItemType | list[MediaItemType] | str | list[str],
+        media: MediaItemTypeOrItemMapping | list[MediaItemTypeOrItemMapping] | str | list[str],
         option: QueueOption | None = None,
         radio_mode: bool = False,
         start_item: PlayableMediaItemType | str | None = None,
@@ -431,7 +437,7 @@ class PlayerQueuesController(CoreController):
                         )
                     )
                     if option == QueueOption.REPLACE:
-                        self.clear(queue_id)
+                        self.clear(queue_id, skip_stop=True)
                 # collect media_items to play
                 if radio_mode:
                     radio_source.append(media_item)
@@ -578,11 +584,11 @@ class PlayerQueuesController(CoreController):
         self.update_items(queue_id, queue_items)
 
     @api_command("player_queues/clear")
-    def clear(self, queue_id: str) -> None:
+    def clear(self, queue_id: str, skip_stop: bool = False) -> None:
         """Clear all items in the queue."""
         queue = self._queues[queue_id]
         queue.radio_source = []
-        if queue.state != PlayerState.IDLE:
+        if queue.state != PlayerState.IDLE and not skip_stop:
             self.mass.create_task(self.stop(queue_id))
         queue.current_index = None
         queue.current_item = None
@@ -802,10 +808,10 @@ class PlayerQueuesController(CoreController):
                 media=await self.player_media_from_queue_item(queue_item, queue.flow_mode),
             )
             await asyncio.sleep(2)
-            setattr(queue, "transitioning", False)  # noqa: B010
+            self._transitioning_players.discard(queue_id)
 
         # we set a flag to notify the update logic that we're transitioning to a new track
-        setattr(queue, "transitioning", True)  # noqa: B010
+        self._transitioning_players.add(queue_id)
         self.mass.call_later(
             1.5 if debounce else 0.1,
             play_media,
@@ -923,10 +929,11 @@ class PlayerQueuesController(CoreController):
             queue.state = PlayerState.IDLE
             # return early if the queue is not active and we have no previous state
             return
-        if getattr(queue, "transitioning", False):
+        if queue.queue_id in self._transitioning_players:
             # we're currently transitioning to a new track,
             # ignore updates from the player during this time
             return
+
         # queue is active and preflight checks passed, update the queue details
         self._update_queue_from_player(player)
 
@@ -1908,23 +1915,25 @@ class PlayerQueuesController(CoreController):
             fully_played = seconds_played >= duration - 10
 
         is_playing = is_current_item and queue.state == PlayerState.PLAYING
-        self.logger.debug(
-            "%s %s '%s' (%s) - Fully played: %s - Progress: %s (%s/%ss)",
-            queue.display_name,
-            "is playing" if is_playing else "played",
-            item_to_report.name,
-            item_to_report.uri,
-            fully_played,
-            f"{percentage_played}%",
-            seconds_played,
-            duration,
-        )
+        if self.logger.isEnabledFor(VERBOSE_LOG_LEVEL):
+            self.logger.debug(
+                "%s %s '%s' (%s) - Fully played: %s - Progress: %s (%s/%ss)",
+                queue.display_name,
+                "is playing" if is_playing else "played",
+                item_to_report.name,
+                item_to_report.uri,
+                fully_played,
+                f"{percentage_played}%",
+                seconds_played,
+                duration,
+            )
         # add entry to playlog - this also handles resume of podcasts/audiobooks
         self.mass.create_task(
             self.mass.music.mark_item_played(
                 item_to_report.media_item,
                 fully_played=fully_played,
                 seconds_played=seconds_played,
+                is_playing=is_playing,
             )
         )
         # signal 'media item played' event,

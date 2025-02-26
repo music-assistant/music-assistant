@@ -933,9 +933,9 @@ class PlayerController(CoreController):
             msg = f"Player {player_id} is already registered"
             raise AlreadyRegisteredError(msg)
 
-        # make sure that the player's provider is set to the lookup key (=instance id)
+        # make sure that the player's provider is set to the instance_id
         prov = self.mass.get_provider(player.provider)
-        if not prov or prov.lookup_key != player.provider:
+        if not prov or prov.instance_id != player.provider:
             raise RuntimeError(f"Invalid provider ID given: {player.provider}")
 
         # make sure a default config exists
@@ -1404,10 +1404,9 @@ class PlayerController(CoreController):
             return self._get_active_source(group_player)
         # if player has plugin source active return that
         for plugin_source in self._get_plugin_sources():
-            if player.active_source == plugin_source.id or (
-                player.current_media
-                and plugin_source.id == player.current_media.queue_id
-                and player.state in (PlayerState.PLAYING, PlayerState.PAUSED)
+            if (
+                player.active_source == plugin_source.id
+                or plugin_source.in_use_by == player.player_id
             ):
                 # copy/set current media if available
                 if plugin_source.metadata:

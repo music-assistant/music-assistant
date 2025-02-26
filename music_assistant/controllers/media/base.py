@@ -55,6 +55,8 @@ SORT_KEYS = {
     # this also improves searching and sorting performance
     "name": "search_name ASC",
     "name_desc": "search_name DESC",
+    "duration": "duration ASC",
+    "duration_desc": "duration DESC",
     "sort_name": "search_sort_name ASC",
     "sort_name_desc": "search_sort_name DESC",
     "timestamp_added": "timestamp_added ASC",

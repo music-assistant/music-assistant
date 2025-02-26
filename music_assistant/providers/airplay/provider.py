@@ -18,6 +18,7 @@ from music_assistant_models.enums import (
     PlayerType,
     ProviderFeature,
 )
+from music_assistant_models.errors import PlayerUnavailableError
 from music_assistant_models.media_items import AudioFormat
 from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 from zeroconf import ServiceStateChange
@@ -31,12 +32,13 @@ from music_assistant.constants import (
     CONF_ENTRY_DEPRECATED_EQ_TREBLE,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
     CONF_ENTRY_OUTPUT_CHANNELS,
+    CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
     CONF_ENTRY_SYNC_ADJUST,
     create_sample_rates_config_entry,
 )
 from music_assistant.helpers.datetime import utc
 from music_assistant.helpers.ffmpeg import get_ffmpeg_stream
-from music_assistant.helpers.util import TaskManager, get_ip_pton, lock, select_free_port
+from music_assistant.helpers.util import get_ip_pton, lock, select_free_port
 from music_assistant.models.player_provider import PlayerProvider
 from music_assistant.providers.airplay.raop import RaopStreamSession
 from music_assistant.providers.player_group import PlayerGroupProvider
@@ -70,6 +72,7 @@ PLAYER_CONFIG_ENTRIES = (
     CONF_ENTRY_DEPRECATED_EQ_MID,
     CONF_ENTRY_DEPRECATED_EQ_TREBLE,
     CONF_ENTRY_OUTPUT_CHANNELS,
+    CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
     ConfigEntry(
         key=CONF_ENCRYPTION,
         type=ConfigEntryType.BOOLEAN,
@@ -293,20 +296,23 @@ class AirplayProvider(PlayerProvider):
         media: PlayerMedia,
     ) -> None:
         """Handle PLAY MEDIA on given player."""
-        player = self.mass.players.get(player_id)
-        if not player:
-            return
+        if not (player := self.mass.players.get(player_id)):
+            # this should not happen, but guard anyways
+            raise PlayerUnavailableError
         if player.synced_to:
-            # should not happen, but just in case
+            # this should not happen, but guard anyways
             raise RuntimeError("Player is synced")
+        if not (airplay_player := self._players.get(player_id)):
+            # this should not happen, but guard anyways
+            raise PlayerUnavailableError
         # set the active source for the player to the media queue
         # this accounts for syncgroups and linked players (e.g. sonos)
         player.active_source = media.queue_id
         player.current_media = media
         # always stop existing stream first
-        async with TaskManager(self.mass) as tg:
-            for airplay_player in self._get_sync_clients(player_id):
-                tg.create_task(airplay_player.cmd_stop(update_state=False))
+        if airplay_player.raop_stream and airplay_player.raop_stream.running:
+            await airplay_player.cmd_stop()
+
         # select audio source
         if media.media_type == MediaType.ANNOUNCEMENT:
             # special case: stream announcement
@@ -516,7 +522,7 @@ class AirplayProvider(PlayerProvider):
             volume = FALLBACK_VOLUME
         mass_player = Player(
             player_id=player_id,
-            provider=self.lookup_key,
+            provider=self.instance_id,
             type=PlayerType.PLAYER,
             name=display_name,
             available=True,
@@ -532,7 +538,7 @@ class AirplayProvider(PlayerProvider):
                 PlayerFeature.VOLUME_SET,
             },
             volume_level=volume,
-            can_group_with={self.lookup_key},
+            can_group_with={self.instance_id},
             enabled_by_default=not is_broken_raop_model(manufacturer, model),
         )
         await self.mass.players.register_or_update(mass_player)

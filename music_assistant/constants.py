@@ -320,6 +320,12 @@ CONF_ENTRY_OUTPUT_CODEC_DEFAULT_MP3 = ConfigEntry.from_dict(
 CONF_ENTRY_OUTPUT_CODEC_ENFORCE_MP3 = ConfigEntry.from_dict(
     {**CONF_ENTRY_OUTPUT_CODEC.to_dict(), "default_value": "mp3", "hidden": True}
 )
+CONF_ENTRY_OUTPUT_CODEC_HIDDEN = ConfigEntry.from_dict(
+    {**CONF_ENTRY_OUTPUT_CODEC.to_dict(), "hidden": True}
+)
+CONF_ENTRY_OUTPUT_CODEC_ENFORCE_FLAC = ConfigEntry.from_dict(
+    {**CONF_ENTRY_OUTPUT_CODEC.to_dict(), "default_value": "flac", "hidden": True}
+)
 
 
 CONF_ENTRY_SYNC_ADJUST = ConfigEntry(
@@ -492,6 +498,10 @@ CONF_ENTRY_ENABLE_ICY_METADATA = ConfigEntry(
     "even when flow mode is enabled.\n\nThis is called ICY metadata and its what is also used by "
     "online radio station to inform you what is playing. \n\nBe aware that not all players support "
     "this correctly. If you experience issues with playback, try to disable this setting.",
+)
+
+CONF_ENTRY_ENABLE_ICY_METADATA_HIDDEN = ConfigEntry.from_dict(
+    {**CONF_ENTRY_ENABLE_ICY_METADATA.to_dict(), "hidden": True}
 )
 
 CONF_ENTRY_WARN_PREVIEW = ConfigEntry(

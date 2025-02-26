@@ -255,9 +255,6 @@ class TracksController(MediaControllerBase[Track]):
         )
         # return all (unique) items from all providers
         result: UniqueList[Album] = UniqueList(db_items)
-        if full_track.provider == "library" and in_library_only:
-            # return in-library items only
-            return result
         # use search to get all items on the provider
         search_query = f"{full_track.artist_str} - {full_track.name}"
         # TODO: we could use musicbrainz info here to get a list of all releases known

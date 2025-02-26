@@ -127,7 +127,7 @@ class SonosPlayer:
         # instantiate the MA player
         self.mass_player = mass_player = Player(
             player_id=self.player_id,
-            provider=self.prov.lookup_key,
+            provider=self.prov.instance_id,
             type=PlayerType.PLAYER,
             name=self.discovery_info["device"]["name"]
             or self.discovery_info["device"]["modelDisplayName"],
@@ -140,7 +140,7 @@ class SonosPlayer:
             supported_features=supported_features,
             # NOTE: strictly taken we can have multiple sonos households
             # but for now we assume we only have one
-            can_group_with={self.prov.lookup_key},
+            can_group_with={self.prov.instance_id},
         )
         if SonosCapability.LINE_IN in self.discovery_info["device"]["capabilities"]:
             mass_player.source_list.append(PLAYER_SOURCE_MAP[SOURCE_LINE_IN])
@@ -308,7 +308,7 @@ class SonosPlayer:
                     if x.player_id != airplay_player.player_id
                 )
             else:
-                self.mass_player.can_group_with = {self.prov.lookup_key}
+                self.mass_player.can_group_with = {self.prov.instance_id}
             self.mass_player.synced_to = None
         else:
             # player is group child (synced to another player)

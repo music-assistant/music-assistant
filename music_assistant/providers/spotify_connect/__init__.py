@@ -122,7 +122,7 @@ class SpotifyConnectProvider(PluginProvider):
         self._librespot_started = asyncio.Event()
         self.named_pipe = f"/tmp/{self.instance_id}"  # noqa: S108
         self._source_details = PluginSource(
-            id=self.lookup_key,
+            id=self.instance_id,
             name=self.manifest.name,
             # we set passive to true because we
             # dont allow this source to be selected directly
@@ -274,9 +274,9 @@ class SpotifyConnectProvider(PluginProvider):
         # we need to start the playback
         if json_data.get("event") in ("sink", "playing") and (not self._source_details.in_use_by):
             # initiate playback by selecting this source on the default player
-            self.logger.error("Initiating playback on %s", self.mass_player_id)
+            self.logger.debug("Initiating playback on %s", self.mass_player_id)
             self.mass.create_task(
-                self.mass.players.select_source(self.mass_player_id, self.lookup_key)
+                self.mass.players.select_source(self.mass_player_id, self.instance_id)
             )
             self._source_details.in_use_by = self.mass_player_id
 
