@@ -245,6 +245,7 @@ class Audibleprovider(MusicProvider):
                 client=self._client,
                 provider_instance=self.instance_id,
                 provider_domain=self.domain,
+                logger=self.logger,
             )
 
             self.logger.info("Successfully authenticated with Audible.")

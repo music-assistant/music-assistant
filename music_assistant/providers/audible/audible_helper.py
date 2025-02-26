@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import html
 import json
+import logging
 import os
 import re
 from collections.abc import AsyncGenerator
@@ -45,12 +46,15 @@ class AudibleHelper:
         client: AsyncClient,
         provider_domain: str,
         provider_instance: str,
+        logger: logging.Logger | None = None,
     ):
         """Initialize the Audible Helper."""
         self.mass = mass
         self.client = client
         self.provider_domain = provider_domain
         self.provider_instance = provider_instance
+        # Ensure logger is never None by using a dummy logger if none is provided
+        self.logger = logger or logging.getLogger("audible_helper")
 
     async def get_library(self) -> AsyncGenerator[Audiobook, None]:
         """Fetch the user's library with pagination."""
@@ -65,8 +69,20 @@ class AudibleHelper:
 
         page = 1
         page_size = 50
+        total_processed = 0
+        max_iterations = 100
+        iteration = 0
 
-        while True:
+        while iteration < max_iterations:
+            iteration += 1
+
+            self.logger.debug(
+                "Audible: Fetching library page %s with page_size %s (processed so far: %s)",
+                page,
+                page_size,
+                total_processed,
+            )
+
             library = await self._call_api(
                 "library",
                 use_cache=False,
@@ -76,10 +92,34 @@ class AudibleHelper:
             )
 
             items = library.get("items", [])
+            total_items = library.get("total_results", 0)
+
+            self.logger.debug(
+                "Audible: Got %s items (total reported by API: %s)", len(items), total_items
+            )
+
+            # Check if this page had no items (which means we've reached the end)
             if not items:
+                self.logger.debug(
+                    "Audible: No more items returned, ending pagination (processed %s items)",
+                    total_processed,
+                )
                 break
 
+            # Process items in this page
+            items_processed_this_page = 0
             for audiobook_data in items:
+                # Check if this is a podcast or non-audio asset that we should skip
+                content_type = audiobook_data.get("content_delivery_type", "")
+                if content_type in ("PodcastParent", "NonAudio"):
+                    self.logger.debug(
+                        "Skipping non-audiobook item: %s (%s)",
+                        audiobook_data.get("title", "Unknown"),
+                        content_type,
+                    )
+                    total_processed += 1
+                    continue
+
                 asin = audiobook_data.get("asin")
                 cached_book = await self.mass.cache.get(
                     key=asin, base_key=CACHE_DOMAIN, category=CACHE_CATEGORY_AUDIOBOOK, default=None
@@ -92,12 +132,33 @@ class AudibleHelper:
                     album = await self._parse_audiobook(audiobook_data)
                     yield album
 
-            # Check if we've reached the end
-            total_items = library.get("total_results", 0)
-            if page * page_size >= total_items:
-                break
+                total_processed += 1
+                items_processed_this_page += 1
 
+            self.logger.debug(
+                "Audible: Processed %s valid audiobooks on page %s", items_processed_this_page, page
+            )
+
+            # Continue to the next page
             page += 1
+            self.logger.debug(
+                "Audible: Moving to page %s (processed: %s, total reported: %s)",
+                page,
+                total_processed,
+                total_items,
+            )
+
+        # Log the final results
+        if iteration >= max_iterations:
+            self.logger.warning(
+                "Audible: Reached maximum iteration limit (%s) with %s items processed",
+                max_iterations,
+                total_processed,
+            )
+        else:
+            self.logger.info(
+                "Audible: Successfully retrieved %s audiobooks from library", total_processed
+            )
 
     async def get_audiobook(self, asin: str, use_cache: bool = True) -> Audiobook | None:
         """Fetch the audiobook by asin."""
@@ -169,36 +230,91 @@ class AudibleHelper:
             data={"acr": acr},
         )
 
-    async def _fetch_chapters(self, asin: str) -> Any:
+    async def _fetch_chapters(self, asin: str) -> list[dict[str, Any]]:
+        """Fetch chapter data for an audiobook."""
+        if not asin or asin == "error":
+            self.logger.warning(
+                "Invalid ASIN provided to _fetch_chapters, returning empty chapter list"
+            )
+            return []
+
         chapters_data: list[Any] = await self.mass.cache.get(
             base_key=CACHE_DOMAIN, category=CACHE_CATEGORY_CHAPTERS, key=asin, default=[]
         )
+
         if not chapters_data:
-            response = await self._call_api(
-                f"content/{asin}/metadata",
-                response_groups="chapter_info, always-returned, content_reference, content_url",
-                chapter_titles_type="Flat",
-            )
-            chapters_data = response.get("content_metadata").get("chapter_info").get("chapters")
-            await self.mass.cache.set(
-                base_key=CACHE_DOMAIN,
-                category=CACHE_CATEGORY_CHAPTERS,
-                key=asin,
-                data=chapters_data,
-            )
+            try:
+                response = await self._call_api(
+                    f"content/{asin}/metadata",
+                    response_groups="chapter_info, always-returned, content_reference, content_url",
+                    chapter_titles_type="Flat",
+                )
+
+                if not response:
+                    self.logger.warning(f"Failed to get metadata for ASIN {asin}")
+                    return []
+
+                content_metadata = response.get("content_metadata")
+                if not content_metadata:
+                    self.logger.warning(f"No content_metadata for ASIN {asin}")
+                    return []
+
+                chapter_info = content_metadata.get("chapter_info")
+                if not chapter_info:
+                    self.logger.warning(f"No chapter_info for ASIN {asin}")
+                    return []
+
+                chapters_data = chapter_info.get("chapters", [])
+
+                await self.mass.cache.set(
+                    base_key=CACHE_DOMAIN,
+                    category=CACHE_CATEGORY_CHAPTERS,
+                    key=asin,
+                    data=chapters_data,
+                )
+            except Exception as exc:
+                self.logger.error(f"Error fetching chapters for ASIN {asin}: {exc}")
+                chapters_data = []
+
         return chapters_data
 
     async def get_last_postion(self, asin: str) -> int:
         """Fetch last position of asin."""
-        response = await self._call_api("annotations/lastpositions", asins=asin)
-        return int(
-            response.get("asin_last_position_heard_annots")[0]
-            .get("last_position_heard")
-            .get("position_ms", 0)
-        )
+        if not asin or asin == "error":
+            return 0
 
-    async def set_last_position(self, asin: str, pos: int) -> Any:
+        try:
+            response = await self._call_api("annotations/lastpositions", asins=asin)
+
+            if not response:
+                self.logger.debug(f"No last position data available for ASIN {asin}")
+                return 0
+
+            annotations = response.get("asin_last_position_heard_annots")
+            if not annotations or not isinstance(annotations, list) or len(annotations) == 0:
+                self.logger.debug(f"No annotations found for ASIN {asin}")
+                return 0
+
+            annotation = annotations[0]
+            if not annotation or not isinstance(annotation, dict):
+                self.logger.debug(f"Invalid annotation for ASIN {asin}")
+                return 0
+
+            last_position = annotation.get("last_position_heard")
+            if not last_position or not isinstance(last_position, dict):
+                self.logger.debug(f"Invalid last_position for ASIN {asin}")
+                return 0
+
+            position_ms = last_position.get("position_ms", 0)
+            return int(position_ms)
+
+        except Exception as exc:
+            self.logger.error(f"Error getting last position for ASIN {asin}: {exc}")
+            return 0
+
+    async def set_last_position(self, asin: str, pos: int) -> None:
         """Report last position."""
+        # TODO: Implement position reporting
 
     async def _call_api(self, path: str, **kwargs: Any) -> Any:
         response = None
@@ -217,15 +333,42 @@ class AudibleHelper:
             )
         return response
 
-    async def _parse_audiobook(self, audiobook_data: dict[str, Any]) -> Audiobook:
+    async def _parse_audiobook(self, audiobook_data: dict[str, Any] | None) -> Audiobook:
+        if audiobook_data is None:
+            self.logger.error("Received None audiobook_data in _parse_audiobook")
+            # Return a minimal valid Audiobook to avoid breaking the iteration
+            return Audiobook(
+                item_id="error",
+                provider=self.provider_instance,
+                name="Error: Missing Audiobook Data",
+                duration=0,
+                provider_mappings={
+                    ProviderMapping(
+                        item_id="error",
+                        provider_domain=self.provider_domain,
+                        provider_instance=self.provider_instance,
+                    )
+                },
+            )
+
         asin = audiobook_data.get("asin", "")
         title = audiobook_data.get("title", "")
         authors = []
         narrators = []
-        for narrator in audiobook_data.get("narrators", []):
-            narrators.append(narrator.get("name"))
-        for author in audiobook_data.get("authors", []):
-            authors.append(author.get("name"))
+
+        # Safely handle narrators
+        narrators_list = audiobook_data.get("narrators") or []
+        if isinstance(narrators_list, list):
+            for narrator in narrators_list:
+                if narrator and isinstance(narrator, dict):
+                    narrators.append(narrator.get("name", "Unknown Narrator"))
+
+        # Safely handle authors
+        authors_list = audiobook_data.get("authors") or []
+        if isinstance(authors_list, list):
+            for author in authors_list:
+                if author and isinstance(author, dict):
+                    authors.append(author.get("name", "Unknown Author"))
         chapters_data = await self._fetch_chapters(asin=asin)
         duration = sum(chapter["length_ms"] for chapter in chapters_data) / 1000
         book = Audiobook(
@@ -277,9 +420,19 @@ class AudibleHelper:
         for index, chapter_data in enumerate(chapters_data):
             start = int(chapter_data.get("start_offset_sec", 0))
             length = int(chapter_data.get("length_ms", 0)) / 1000
+            # Get chapter title with fallback and explicit typing
+            raw_title = chapter_data.get("title")
+            chapter_title: str
+            if raw_title is None:
+                chapter_title = f"Chapter {index + 1}"
+            elif isinstance(raw_title, str):
+                chapter_title = raw_title
+            else:
+                chapter_title = str(raw_title)
+
             chapters.append(
                 MediaItemChapter(
-                    position=index, name=chapter_data.get("title"), start=start, end=start + length
+                    position=index, name=chapter_title, start=start, end=start + length
                 )
             )
         book.metadata.chapters = chapters
