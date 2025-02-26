@@ -422,3 +422,12 @@ async def search(
         return results
 
     return await asyncio.to_thread(inner)
+
+
+async def token_refresh(session: TidalSession) -> None:
+    """Async wrapper around the tidalapi Session.refresh function."""
+
+    def inner() -> None:
+        session.token_refresh(session.refresh_token)
+
+    return await asyncio.to_thread(inner)
