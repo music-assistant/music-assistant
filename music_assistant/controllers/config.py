@@ -37,6 +37,7 @@ from music_assistant.constants import (
     CONF_DEPRECATED_EQ_BASS,
     CONF_DEPRECATED_EQ_MID,
     CONF_DEPRECATED_EQ_TREBLE,
+    CONF_OUTPUT_LIMITER,
     CONF_PLAYER_DSP,
     CONF_PLAYERS,
     CONF_PROVIDERS,
@@ -455,7 +456,16 @@ class ConfigController:
         In case the player does not have a DSP configuration, a default one is returned.
         """
         if raw_conf := self.get(f"{CONF_PLAYER_DSP}/{player_id}"):
-            return DSPConfig.from_dict(raw_conf)
+            config = DSPConfig.from_dict(raw_conf)
+            if config.enabled and not config.output_limiter:
+                # TODO: remove this in a future release
+                self.mass.config.set_raw_player_config_value(
+                    player_id, CONF_OUTPUT_LIMITER, config.output_limiter
+                )
+                config.output_limiter = True
+                self.set(f"{CONF_PLAYER_DSP}/{player_id}", config.to_dict())
+
+            return config
         else:
             # return default DSP config
             dsp_config = DSPConfig()
