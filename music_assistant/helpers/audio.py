@@ -871,12 +871,13 @@ async def get_file_stream(
 async def get_preview_stream(
     mass: MusicAssistant,
     provider_instance_id_or_domain: str,
-    track_id: str,
+    item_id: str,
+    media_type: MediaType = MediaType.TRACK,
 ) -> AsyncGenerator[bytes, None]:
     """Create a 30 seconds preview audioclip for the given streamdetails."""
     if not (music_prov := mass.get_provider(provider_instance_id_or_domain)):
         raise ProviderUnavailableError
-    streamdetails = await music_prov.get_stream_details(track_id)
+    streamdetails = await music_prov.get_stream_details(item_id, media_type)
     async for chunk in get_ffmpeg_stream(
         audio_input=music_prov.get_audio_stream(streamdetails, 30)
         if streamdetails.stream_type == StreamType.CUSTOM

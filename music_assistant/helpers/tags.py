@@ -398,6 +398,8 @@ class AudioTags:
         # append any tags found in streams (but don't overwrite format tags)
         tags = {}
         for stream in [raw["format"]] + raw["streams"]:
+            if stream.get("codec_type") == "video":
+                continue
             for key, value in stream.get("tags", {}).items():
                 alt_key = key.lower().replace(" ", "").replace("_", "").replace("-", "")
                 if alt_key in tags:
