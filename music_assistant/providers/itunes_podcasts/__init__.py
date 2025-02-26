@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import urllib.parse
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -132,29 +131,23 @@ class ITunesPodcastsProvider(MusicProvider):
             limit = 200
         country = str(self.config.get_value(CONF_LOCALE))
         explicit = "Yes" if bool(self.config.get_value(CONF_EXPLICIT)) else "No"
-        params = urllib.parse.urlencode(
-            {
-                "media": "podcast",
-                "entity": "podcast",
-                "country": country,
-                "attribute": "titleTerm",
-                "explicit": explicit,
-                "limit": limit,
-                "term": search_query,
-            },
-            quote_via=urllib.parse.quote_plus,
-        )
-        url = f"https://itunes.apple.com/search?{params}"
-        self.logger.debug(f"Search url: {url}")
-        result.podcasts = await self._perform_search(url)
+        params: dict[str, str | int] = {
+            "media": "podcast",
+            "entity": "podcast",
+            "country": country,
+            "attribute": "titleTerm",
+            "explicit": explicit,
+            "limit": limit,
+            "term": search_query,
+        }
+        url = "https://itunes.apple.com/search?"
+        result.podcasts = await self._perform_search(url, params)
 
         return result
 
     @throttle_with_retries
-    async def _perform_search(self, url: str) -> list[Podcast]:
-        response = await self.mass.http_session.get(
-            url,
-        )
+    async def _perform_search(self, url: str, params: dict[str, str | int]) -> list[Podcast]:
+        response = await self.mass.http_session.get(url, params=params)
         json_response = b""
         if response.status == 200:
             json_response = await response.read()
