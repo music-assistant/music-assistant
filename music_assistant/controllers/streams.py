@@ -324,7 +324,7 @@ class StreamsController(CoreController):
             return resp
 
         # all checks passed, start streaming!
-        self.logger.info(
+        self.logger.debug(
             "Start serving audio stream for QueueItem %s (%s) to %s",
             queue_item.name,
             queue_item.uri,
@@ -710,7 +710,7 @@ class StreamsController(CoreController):
                     queue_track.queue_item_id,
                 )
 
-            self.logger.info(
+            self.logger.debug(
                 "Start Streaming queue track: %s (%s) for queue %s",
                 queue_track.streamdetails.uri,
                 queue_track.name,

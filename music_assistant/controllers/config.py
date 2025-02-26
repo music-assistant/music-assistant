@@ -37,6 +37,7 @@ from music_assistant.constants import (
     CONF_DEPRECATED_EQ_BASS,
     CONF_DEPRECATED_EQ_MID,
     CONF_DEPRECATED_EQ_TREBLE,
+    CONF_ONBOARD_DONE,
     CONF_PLAYER_DSP,
     CONF_PLAYERS,
     CONF_PROVIDERS,
@@ -97,7 +98,7 @@ class ConfigController:
     @property
     def onboard_done(self) -> bool:
         """Return True if onboarding is done."""
-        return len(self._data.get(CONF_PROVIDERS, {})) > 0
+        return self.get(CONF_ONBOARD_DONE, False)
 
     async def close(self) -> None:
         """Handle logic on server stop."""
@@ -276,6 +277,9 @@ class ConfigController:
             config = await self._update_provider_config(instance_id, values)
         else:
             config = await self._add_provider_config(provider_domain, values)
+        # mark onboard done whenever the (first) provider is added
+        # this will be replaced later by a more sophisticated onboarding process
+        self.set(CONF_ONBOARD_DONE, True)
         # return full config, just in case
         return await self.get_provider_config(config.instance_id)
 
@@ -319,7 +323,7 @@ class ConfigController:
     async def get_player_configs(
         self, provider: str | None = None, include_values: bool = False
     ) -> list[PlayerConfig]:
-        """Return all known player configurations, optionally filtered by provider domain."""
+        """Return all known player configurations, optionally filtered by provider id."""
         return [
             await self.get_player_config(raw_conf["player_id"])
             if include_values
@@ -816,6 +820,14 @@ class ConfigController:
                 for x in sample_rates
             ]
             changed = True
+        # set 'onboard_done' flag if we have any (non default) provider configs
+        if not self._data.get(CONF_ONBOARD_DONE):
+            default_providers = {x.domain for x in self.mass.get_provider_manifests() if x.builtin}
+            for provider_config in self._data.get(CONF_PROVIDERS, {}).values():
+                if provider_config["domain"] not in default_providers:
+                    self.set(CONF_ONBOARD_DONE, True)
+                    changed = True
+                    break
 
         if changed:
             await self._async_save()

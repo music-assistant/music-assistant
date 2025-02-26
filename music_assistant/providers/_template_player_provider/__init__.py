@@ -210,7 +210,7 @@ class MyDemoPlayerprovider(PlayerProvider):
         # Instantiate the MA Player object and register it with the player manager
         mass_player = Player(
             player_id=player_id,
-            provider=self.lookup_key,
+            provider=self.instance_id,
             type=PlayerType.PLAYER,
             name=name,
             available=True,

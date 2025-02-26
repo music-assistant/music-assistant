@@ -182,10 +182,16 @@ class PlayerGroupProvider(PlayerProvider):
         # temp: migrate old config entries
         # remove this after MA 2.4 release
         for player_config in await self.mass.config.get_player_configs(include_values=True):
+            # migrate provider set to domain to instance_id
+            if player_config.provider == self.manifest.domain:
+                self.mass.config.set_raw_player_config_value(
+                    player_config.player_id, "provider", self.instance_id
+                )
+                player_config.provider = self.instance_id
+            # migrate old syncgroup/UGP players to this provider
             if player_config.values.get(CONF_GROUP_TYPE) is not None:
                 # already migrated
                 continue
-            # migrate old syncgroup players to this provider
             if player_config.player_id.startswith(SYNCGROUP_PREFIX):
                 self.mass.config.set_raw_player_config_value(
                     player_config.player_id, CONF_GROUP_TYPE, player_config.provider
@@ -194,7 +200,6 @@ class PlayerGroupProvider(PlayerProvider):
                 self.mass.config.set_raw_player_config_value(
                     player_config.player_id, "provider", self.instance_id
                 )
-            # migrate old UGP players to this provider
             elif player_config.player_id.startswith(UNIVERSAL_PREFIX):
                 self.mass.config.set_raw_player_config_value(
                     player_config.player_id, CONF_GROUP_TYPE, "universal"

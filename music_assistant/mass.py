@@ -139,6 +139,8 @@ class MusicAssistant:
                 limit_per_host=100,
             ),
         )
+        # load all available providers from manifest files
+        await self.__load_provider_manifests()
         # setup config controller first and fetch important config values
         self.config = ConfigController(self)
         await self.config.setup()
@@ -174,8 +176,6 @@ class MusicAssistant:
         # not yet available while we're starting (or performing migrations)
         self._register_api_commands()
         await self.webserver.setup(await self.config.get_core_config("webserver"))
-        # load all available providers from manifest files
-        await self.__load_provider_manifests()
         # setup discovery
         await self._setup_discovery()
         # load providers

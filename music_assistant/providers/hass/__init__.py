@@ -378,7 +378,7 @@ class HomeAssistantProvider(PluginProvider):
                 name = entity_id
             control = PlayerControl(
                 id=entity_id,
-                provider=self.lookup_key,
+                provider=self.instance_id,
                 name=name,
             )
             if entity_id in power_controls:

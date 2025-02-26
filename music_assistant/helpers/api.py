@@ -13,6 +13,8 @@ from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
 
 from mashumaro.exceptions import MissingField
 
+from music_assistant.helpers.util import try_parse_bool
+
 LOGGER = logging.getLogger(__name__)
 
 _F = TypeVar("_F", bound=Callable[..., Any])
@@ -78,7 +80,13 @@ def parse_arguments(
     for name, param in func_sig.parameters.items():
         value = args.get(name)
         default = MISSING if param.default is inspect.Parameter.empty else param.default
-        final_args[name] = parse_value(name, value, func_types[name], default)
+        try:
+            final_args[name] = parse_value(name, value, func_types[name], default)
+        except TypeError:
+            # retry one more time with allow_value_convert=True
+            final_args[name] = parse_value(
+                name, value, func_types[name], default, allow_value_convert=True
+            )
     return final_args
 
 
@@ -87,7 +95,13 @@ def parse_utc_timestamp(datetime_string: str) -> datetime:
     return datetime.fromisoformat(datetime_string.replace("Z", "+00:00"))
 
 
-def parse_value(name: str, value: Any, value_type: Any, default: Any = MISSING) -> Any:
+def parse_value(  # noqa: PLR0911
+    name: str,
+    value: Any,
+    value_type: Any,
+    default: Any = MISSING,
+    allow_value_convert: bool = False,
+) -> Any:
     """Try to parse a value from raw (json) data and type annotations."""
     if isinstance(value, dict) and hasattr(value_type, "from_dict"):
         if (
@@ -106,7 +120,9 @@ def parse_value(name: str, value: Any, value_type: Any, default: Any = MISSING) 
     origin = get_origin(value_type)
     if origin in (tuple, list):
         return origin(
-            parse_value(name, subvalue, get_args(value_type)[0])
+            parse_value(
+                name, subvalue, get_args(value_type)[0], allow_value_convert=allow_value_convert
+            )
             for subvalue in value
             if subvalue is not None
         )
@@ -115,7 +131,7 @@ def parse_value(name: str, value: Any, value_type: Any, default: Any = MISSING) 
         subvalue_type = get_args(value_type)[1]
         return {
             parse_value(subkey, subkey, subkey_type): parse_value(
-                f"{subkey}.value", subvalue, subvalue_type
+                f"{subkey}.value", subvalue, subvalue_type, allow_value_convert=allow_value_convert
             )
             for subkey, subvalue in value.items()
         }
@@ -127,7 +143,9 @@ def parse_value(name: str, value: Any, value_type: Any, default: Any = MISSING) 
                 return value
             # try them all until one succeeds
             try:
-                return parse_value(name, value, sub_arg_type)
+                return parse_value(
+                    name, value, sub_arg_type, allow_value_convert=allow_value_convert
+                )
             except (KeyError, TypeError, ValueError, MissingField):
                 pass
         # if we get to this point, all possibilities failed
@@ -159,12 +177,21 @@ def parse_value(name: str, value: Any, value_type: Any, default: Any = MISSING) 
         # happens if value_type is not a class
         pass
 
-    if value_type is float and isinstance(value, int):
-        return float(value)
-    if value_type is int and isinstance(value, str) and value.isnumeric():
-        return int(value)
+    if allow_value_convert:
+        # allow conversion of common types/mistakes
+        if value_type is float and isinstance(value, int):
+            return float(value)
+        if value_type is int and isinstance(value, float):
+            return int(value)
+        if value_type is int and isinstance(value, str) and value.isnumeric():
+            return int(value)
+        if value_type is float and isinstance(value, str) and value.isnumeric():
+            return float(value)
+        if value_type is bool and isinstance(value, str | int):
+            return try_parse_bool(value)
 
     if not isinstance(value, value_type):  # type: ignore[arg-type]
+        # all options failed, raise exception
         msg = (
             f"Value {value} of type {type(value)} is invalid for {name}, "
             f"expected value of type {value_type}"

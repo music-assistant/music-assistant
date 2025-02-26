@@ -729,7 +729,7 @@ class PlayerController(CoreController):
             player.active_source = None
             player.current_media = None
         # check if source is a pluginsource
-        # in that case the source id is the lookup_key of the plugin provider
+        # in that case the source id is the instance_id of the plugin provider
         if plugin_prov := self.mass.get_provider(source):
             await self._handle_select_plugin_source(player, plugin_prov)
             return
@@ -1157,9 +1157,9 @@ class PlayerController(CoreController):
             msg = f"PlayerControl {control_id} is already registered"
             raise AlreadyRegisteredError(msg)
 
-        # make sure that the playercontrol's provider is set to the lookup_key
+        # make sure that the playercontrol's provider is set to the instance_id
         prov = self.mass.get_provider(player_control.provider)
-        if not prov or prov.lookup_key != player_control.provider:
+        if not prov or prov.instance_id != player_control.provider:
             raise RuntimeError(f"Invalid provider ID given: {player_control.provider}")
 
         self._controls[control_id] = player_control
