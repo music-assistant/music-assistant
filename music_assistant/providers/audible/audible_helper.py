@@ -272,8 +272,24 @@ class AudibleHelper:
                     key=asin,
                     data=chapters_data,
                 )
+            except (KeyError, TypeError) as exc:
+                self.logger.error(f"Error parsing chapter data for ASIN {asin}: {exc}")
+                chapters_data = []
+            except TimeoutError as exc:
+                self.logger.error(f"Timeout while fetching chapters for ASIN {asin}: {exc}")
+                chapters_data = []
+            except ConnectionError as exc:
+                self.logger.error(
+                    f"Connection error while fetching chapters for ASIN {asin}: {exc}"
+                )
+                chapters_data = []
+            except json.JSONDecodeError as exc:
+                self.logger.error(
+                    f"Invalid JSON response while fetching chapters for ASIN {asin}: {exc}"
+                )
+                chapters_data = []
             except Exception as exc:
-                self.logger.error(f"Error fetching chapters for ASIN {asin}: {exc}")
+                self.logger.error(f"Unexpected error fetching chapters for ASIN {asin}: {exc}")
                 chapters_data = []
 
         return chapters_data
@@ -308,8 +324,21 @@ class AudibleHelper:
             position_ms = last_position.get("position_ms", 0)
             return int(position_ms)
 
+        except (KeyError, TypeError) as exc:
+            self.logger.error(
+                f"Error parsing data while getting last position for ASIN {asin}: {exc}"
+            )
+            return 0
+        except TimeoutError as exc:
+            self.logger.error(f"Timeout while getting last position for ASIN {asin}: {exc}")
+            return 0
+        except ConnectionError as exc:
+            self.logger.error(
+                f"Connection error while getting last position for ASIN {asin}: {exc}"
+            )
+            return 0
         except Exception as exc:
-            self.logger.error(f"Error getting last position for ASIN {asin}: {exc}")
+            self.logger.error(f"Unexpected error getting last position for ASIN {asin}: {exc}")
             return 0
 
     async def set_last_position(self, asin: str, pos: int) -> None:
@@ -339,8 +368,16 @@ class AudibleHelper:
 
             self.logger.debug(f"Successfully reported position {position_ms}ms for ASIN {asin}")
 
+        except (KeyError, TypeError) as exc:
+            self.logger.error(
+                f"Error accessing data while reporting position for ASIN {asin}: {exc}"
+            )
+        except TimeoutError as exc:
+            self.logger.error(f"Timeout while reporting position for ASIN {asin}: {exc}")
+        except ConnectionError as exc:
+            self.logger.error(f"Connection error while reporting position for ASIN {asin}: {exc}")
         except Exception as exc:
-            self.logger.error(f"Error reporting position for ASIN {asin}: {exc}")
+            self.logger.error(f"Unexpected error reporting position for ASIN {asin}: {exc}")
 
     async def _call_api(self, path: str, **kwargs: Any) -> Any:
         response = None
