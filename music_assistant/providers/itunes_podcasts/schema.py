@@ -4,11 +4,10 @@ Only what is needed.
 """
 
 from dataclasses import dataclass, field
-from typing import Annotated
 
+from mashumaro import field_options
 from mashumaro.config import BaseConfig
 from mashumaro.mixins.json import DataClassJSONMixin
-from mashumaro.types import Alias
 
 
 class _BaseModel(DataClassJSONMixin):
@@ -26,19 +25,27 @@ class PodcastSearchResult(_BaseModel):
     """PodcastSearchResult."""
 
     kind: str | None = None
-    artist_name: Annotated[str | None, Alias("artistName")] = None
-    collection_name: Annotated[str | None, Alias("collectionName")] = None
-    collection_censored_name: Annotated[str | None, Alias("collectionCensoredName")] = None
-    track_name: Annotated[str | None, Alias("trackName")] = None
-    track_censored_name: Annotated[str | None, Alias("trackCensoredName")] = None
-    feed_url: Annotated[str | None, Alias("feedUrl")] = None
-    artwork_url_30: Annotated[str | None, Alias("artworkUrl30")] = None
-    artwork_url_60: Annotated[str | None, Alias("artworkUrl60")] = None
-    artwork_url_100: Annotated[str | None, Alias("artworkUrl100")] = None
-    artwork_url_600: Annotated[str | None, Alias("artworkUrl600")] = None
-    release_date: Annotated[str | None, Alias("releaseDate")] = None
-    track_count: Annotated[int, Alias("trackCount")] = 0
-    primary_genre_name: Annotated[str | None, Alias("primaryGenreName")] = None
+    artist_name: str | None = field(metadata=field_options(alias="artistName"), default=None)
+    collection_name: str | None = field(
+        metadata=field_options(alias="collectionName"), default=None
+    )
+    collection_censored_name: str | None = field(
+        metadata=field_options(alias="collectionCensoredName"), default=None
+    )
+    track_name: str | None = field(metadata=field_options(alias="trackName"), default=None)
+    track_censored_name: str | None = field(
+        metadata=field_options(alias="trackCensoredName"), default=None
+    )
+    feed_url: str | None = field(metadata=field_options(alias="feedUrl"), default=None)
+    artwork_url_30: str | None = field(metadata=field_options(alias="artworkUrl30"), default=None)
+    artwork_url_60: str | None = field(metadata=field_options(alias="artworkUrl60"), default=None)
+    artwork_url_100: str | None = field(metadata=field_options(alias="artworkUrl100"), default=None)
+    artwork_url_600: str | None = field(metadata=field_options(alias="artworkUrl600"), default=None)
+    release_date: str | None = field(metadata=field_options(alias="releaseDate"), default=None)
+    track_count: int = field(metadata=field_options(alias="trackCount"), default=0)
+    primary_genre_name: str | None = field(
+        metadata=field_options(alias="primaryGenreName"), default=None
+    )
     genres: list[str] = field(default_factory=list)
 
 
@@ -46,5 +53,5 @@ class PodcastSearchResult(_BaseModel):
 class ITunesSearchResults(_BaseModel):
     """SearchResults."""
 
-    result_count: Annotated[int, Alias("resultCount")] = 0
+    result_count: int = field(metadata=field_options(alias="resultCount"), default=0)
     results: list[PodcastSearchResult] = field(default_factory=list)
