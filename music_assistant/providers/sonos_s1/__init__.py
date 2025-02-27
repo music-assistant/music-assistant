@@ -62,6 +62,7 @@ PLAYER_FEATURES = {
 
 CONF_NETWORK_SCAN = "network_scan"
 CONF_HOUSEHOLD_ID = "household_id"
+CONF_IPS = "ips"
 SUBSCRIPTION_TIMEOUT = 1200
 ZGS_SUBSCRIPTION_TIMEOUT = 2
 
@@ -118,6 +119,21 @@ async def get_config_entries(
             default_value=household_ids[0] if household_ids else None,
             description="Household ID for the Sonos (S1) system. Will be auto detected if empty.",
             category="advanced",
+            required=False,
+        ),
+        ConfigEntry(
+            key=CONF_IPS,
+            type=ConfigEntryType.STRING,
+            label="IP addresses (ADVANCED, NOT SUPPORTED)",
+            description="Additional fixed IP addresses for speakers. "
+            "Should be formatted as a comma separated list of IP addresses "
+            "(e.g. '10.0.0.42, 10.0.0.45').\n"
+            "Invalid addresses may result in the Sonos provider "
+            "becoming unresponsive and server crashes.\n"
+            "Bidirectional unicast communication to and between all IPs is required.\n"
+            "NOT SUPPORTED, USE ON YOU'RE OWN RISK",
+            category="advanced",
+            default_value=None,
             required=False,
         ),
     )
@@ -465,11 +481,20 @@ async def discover_household_ids(mass: MusicAssistant, prefer_s1: bool = True) -
     household_ids: list[str] = []
 
     def get_all_sonos_ips() -> set[SoCo]:
-        """Run full network discovery and return IP's of all devices found on the network."""
-        discovered_zones: set[SoCo] | None
-        if discovered_zones := scan_network(multi_household=True):
-            return {zone.ip_address for zone in discovered_zones}
-        return set()
+        ips: set[SoCo] | None
+        manual_ip_config: str | None
+        if (manual_ip_config := self.config.get_value(CONF_IPS)) is not None:
+            ips = set(map(str.strip, manual_ip_config.split(',')))
+        else
+            """Run full network discovery and return IP's of all devices found on the network."""
+            discovered_zones: set[SoCo] | None
+            if discovered_zones := scan_network(multi_household=True):
+                ips = {zone.ip_address for zone in discovered_zones}
+            else
+                ips = set()
+        
+        return ips
+        
 
     all_sonos_ips = await asyncio.to_thread(get_all_sonos_ips)
     for ip_address in all_sonos_ips:
