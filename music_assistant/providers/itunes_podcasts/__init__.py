@@ -80,7 +80,6 @@ async def get_config_entries(
             label="Country",
             required=True,
             options=language_options,
-            default_value="de",
         ),
         ConfigEntry(
             key=CONF_EXPLICIT,
