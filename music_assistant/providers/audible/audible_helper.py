@@ -36,6 +36,21 @@ CACHE_CATEGORY_API = 0
 CACHE_CATEGORY_AUDIOBOOK = 1
 CACHE_CATEGORY_CHAPTERS = 2
 
+# Cache for authenticator objects to avoid repeated file reads
+_AUTH_CACHE: dict[str, audible.Authenticator] = {}
+
+
+async def cached_authenticator_from_file(path: str) -> audible.Authenticator:
+    """Get an authenticator from file with caching to avoid repeated file reads."""
+    logger = logging.getLogger("audible_helper")
+    if path in _AUTH_CACHE:
+        return _AUTH_CACHE[path]
+
+    logger.debug("Loading authenticator from file %s and caching it", path)
+    auth = await asyncio.to_thread(audible.Authenticator.from_file, path)
+    _AUTH_CACHE[path] = auth
+    return auth
+
 
 class AudibleHelper:
     """Helper for parsing and using audible api."""
@@ -125,15 +140,20 @@ class AudibleHelper:
                     key=asin, base_key=CACHE_DOMAIN, category=CACHE_CATEGORY_AUDIOBOOK, default=None
                 )
 
-                if cached_book is not None:
-                    album = await self._parse_audiobook(cached_book)
-                    yield album
-                else:
-                    album = await self._parse_audiobook(audiobook_data)
-                    yield album
+                try:
+                    if cached_book is not None:
+                        album = await self._parse_audiobook(cached_book)
+                        yield album
+                    else:
+                        album = await self._parse_audiobook(audiobook_data)
+                        yield album
 
-                total_processed += 1
-                items_processed_this_page += 1
+                    total_processed += 1
+                    items_processed_this_page += 1
+                except ValueError as exc:
+                    self.logger.warning(f"Skipping invalid audiobook: {exc}")
+                    total_processed += 1
+                    continue
 
             self.logger.debug(
                 "Audible: Processed %s valid audiobooks on page %s", items_processed_this_page, page
@@ -162,60 +182,83 @@ class AudibleHelper:
 
     async def get_audiobook(self, asin: str, use_cache: bool = True) -> Audiobook | None:
         """Fetch the audiobook by asin."""
-        if use_cache:
-            cached_book = await self.mass.cache.get(
-                key=asin, base_key=CACHE_DOMAIN, category=CACHE_CATEGORY_AUDIOBOOK, default=None
+        try:
+            if use_cache:
+                cached_book = await self.mass.cache.get(
+                    key=asin, base_key=CACHE_DOMAIN, category=CACHE_CATEGORY_AUDIOBOOK, default=None
+                )
+                if cached_book is not None:
+                    return await self._parse_audiobook(cached_book)
+            response = await self._call_api(
+                f"library/{asin}",
+                response_groups="""
+                    contributors, media, price, product_attrs, product_desc, product_details,
+                    product_extended_attrs,is_finished
+                    """,
             )
-            if cached_book is not None:
-                return await self._parse_audiobook(cached_book)
-        response = await self._call_api(
-            f"library/{asin}",
-            response_groups="""
-                contributors, media, price, product_attrs, product_desc, product_details,
-                product_extended_attrs,is_finished
-                """,
-        )
 
-        if response is None:
+            if response is None:
+                return None
+            await self.mass.cache.set(
+                key=asin,
+                base_key=CACHE_DOMAIN,
+                category=CACHE_CATEGORY_AUDIOBOOK,
+                data=response.get("item"),
+            )
+            return await self._parse_audiobook(response.get("item"))
+        except ValueError as exc:
+            self.logger.warning(f"Invalid audiobook data for ASIN {asin}: {exc}")
             return None
-        await self.mass.cache.set(
-            key=asin,
-            base_key=CACHE_DOMAIN,
-            category=CACHE_CATEGORY_AUDIOBOOK,
-            data=response.get("item"),
-        )
-        return await self._parse_audiobook(response.get("item"))
 
     async def get_stream(self, asin: str) -> StreamDetails:
         """Get stream details for a track (audiobook chapter)."""
+        if not asin:
+            self.logger.error("Invalid ASIN provided to get_stream")
+            raise ValueError("Invalid ASIN provided to get_stream")
+
         chapters = await self._fetch_chapters(asin=asin)
+        if not chapters:
+            self.logger.warning(f"No chapters found for ASIN {asin}, using default duration")
+            duration = 0
+        else:
+            duration = sum(chapter["length_ms"] for chapter in chapters) / 1000
 
-        duration = sum(chapter["length_ms"] for chapter in chapters) / 1000
-
-        playback_info = await self.client.post(
-            f"content/{asin}/licenserequest",
-            body={
-                "quality": "High",
-                "response_groups": "content_reference,certificate",
-                "consumption_type": "Streaming",
-                "supported_media_features": {
-                    "codecs": ["mp4a.40.2", "mp4a.40.42"],
-                    "drm_types": [
-                        "Hls",
-                    ],
+        try:
+            playback_info = await self.client.post(
+                f"content/{asin}/licenserequest",
+                body={
+                    "quality": "High",
+                    "response_groups": "content_reference,certificate",
+                    "consumption_type": "Streaming",
+                    "supported_media_features": {
+                        "codecs": ["mp4a.40.2", "mp4a.40.42"],
+                        "drm_types": [
+                            "Hls",
+                        ],
+                    },
+                    "spatial": False,
                 },
-                "spatial": False,
-            },
-        )
-        size = (
-            playback_info.get("content_license")
-            .get("content_metadata")
-            .get("content_reference")
-            .get("content_size_in_bytes", 0)
-        )
+            )
 
-        m3u8_url = playback_info.get("content_license").get("license_response")
-        acr = playback_info.get("content_license").get("acr")
+            # Safely extract nested values with proper error handling
+            content_license = playback_info.get("content_license", {})
+            if not content_license:
+                self.logger.error(f"No content_license in playback_info for ASIN {asin}")
+                raise ValueError(f"Missing content_license for ASIN {asin}")
+
+            content_metadata = content_license.get("content_metadata", {})
+            content_reference = content_metadata.get("content_reference", {})
+            size = content_reference.get("content_size_in_bytes", 0)
+
+            m3u8_url = content_license.get("license_response")
+            if not m3u8_url:
+                self.logger.error(f"No license_response (stream URL) for ASIN {asin}")
+                raise ValueError(f"Missing stream URL for ASIN {asin}")
+
+            acr = content_license.get("acr")
+        except Exception as exc:
+            self.logger.error(f"Error getting stream details for ASIN {asin}: {exc}")
+            raise ValueError(f"Failed to get stream details: {exc}") from exc
         return StreamDetails(
             provider=self.provider_instance,
             size=size,
@@ -318,7 +361,7 @@ class AudibleHelper:
 
     async def _call_api(self, path: str, **kwargs: Any) -> Any:
         response = None
-        use_cache = False
+        use_cache = kwargs.pop("use_cache", False)
         params_str = json.dumps(kwargs, sort_keys=True)
         params_hash = hashlib.md5(params_str.encode()).hexdigest()
         cache_key_with_params = f"{path}:{params_hash}"
@@ -327,6 +370,8 @@ class AudibleHelper:
                 key=cache_key_with_params, base_key=CACHE_DOMAIN, category=CACHE_CATEGORY_API
             )
         if not response:
+            # Use the client that was passed in the constructor, which should be using
+            # the cached authenticator from the provider class
             response = await self.client.get(path, **kwargs)
             await self.mass.cache.set(
                 key=cache_key_with_params, base_key=CACHE_DOMAIN, data=response
@@ -336,20 +381,7 @@ class AudibleHelper:
     async def _parse_audiobook(self, audiobook_data: dict[str, Any] | None) -> Audiobook:
         if audiobook_data is None:
             self.logger.error("Received None audiobook_data in _parse_audiobook")
-            # Return a minimal valid Audiobook to avoid breaking the iteration
-            return Audiobook(
-                item_id="error",
-                provider=self.provider_instance,
-                name="Error: Missing Audiobook Data",
-                duration=0,
-                provider_mappings={
-                    ProviderMapping(
-                        item_id="error",
-                        provider_domain=self.provider_domain,
-                        provider_instance=self.provider_instance,
-                    )
-                },
-            )
+            raise ValueError("Invalid audiobook data: received None")
 
         asin = audiobook_data.get("asin", "")
         title = audiobook_data.get("title", "")

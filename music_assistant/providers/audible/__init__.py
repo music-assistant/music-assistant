@@ -24,6 +24,7 @@ from music_assistant.providers.audible.audible_helper import (
     AudibleHelper,
     audible_custom_login,
     audible_get_auth_info,
+    cached_authenticator_from_file,
     check_file_exists,
     remove_file,
 )
@@ -79,7 +80,8 @@ async def get_config_entries(
     auth_required = True
     if auth_file and await check_file_exists(auth_file):
         try:
-            auth = await asyncio.to_thread(audible.Authenticator.from_file, auth_file)
+            # Use our cached authenticator function to avoid repeated file reads
+            auth = await cached_authenticator_from_file(auth_file)
             auth_required = False
         except Exception:
             auth_required = True
@@ -223,6 +225,7 @@ class Audibleprovider(MusicProvider):
         self.locale = cast(str, self.config.get_value(CONF_LOCALE) or "us")
         self.auth_file = cast(str, self.config.get_value(CONF_AUTH_FILE))
         self._client: audible.AsyncClient | None = None
+        self._auth: audible.Authenticator | None = None
         audible.log_helper.set_level(getLevelName(self.logger.level))
 
     async def handle_async_init(self) -> None:
@@ -232,13 +235,18 @@ class Audibleprovider(MusicProvider):
     async def _login(self) -> None:
         """Authenticate with Audible using the saved authentication file."""
         try:
-            auth = await asyncio.to_thread(audible.Authenticator.from_file, self.auth_file)
+            # Only load the auth file if we don't have a cached authenticator
+            if self._auth is None:
+                self.logger.debug("Loading Audible authentication from file")
+                self._auth = await cached_authenticator_from_file(self.auth_file)
+            # Check if token is expired and refresh if needed
+            if self._auth.access_token_expired:
+                self.logger.debug("Refreshing expired Audible access token")
+                await asyncio.to_thread(self._auth.refresh_access_token)
+                await asyncio.to_thread(self._auth.to_file, self.auth_file)
 
-            if auth.access_token_expired:
-                await asyncio.to_thread(auth.refresh_access_token)
-                await asyncio.to_thread(auth.to_file, self.auth_file)
-
-            self._client = audible.AsyncClient(auth)
+            # Create client with cached authenticator
+            self._client = audible.AsyncClient(self._auth)
 
             self.helper = AudibleHelper(
                 mass=self.mass,
@@ -278,7 +286,11 @@ class Audibleprovider(MusicProvider):
 
     async def get_stream_details(self, item_id: str, media_type: MediaType) -> StreamDetails:
         """Get streamdetails for a audiobook based of asin."""
-        return await self.helper.get_stream(asin=item_id)
+        try:
+            return await self.helper.get_stream(asin=item_id)
+        except ValueError as exc:
+            self.logger.error(f"Failed to get stream details for {item_id}: {exc}")
+            raise
 
     async def on_played(
         self,
