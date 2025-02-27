@@ -33,8 +33,8 @@ from music_assistant_models.errors import (
 from music_assistant_models.streamdetails import AudioFormat
 
 from music_assistant.constants import (
+    CONF_ENTRY_OUTPUT_LIMITER,
     CONF_OUTPUT_CHANNELS,
-    CONF_OUTPUT_LIMITER,
     CONF_VOLUME_NORMALIZATION,
     CONF_VOLUME_NORMALIZATION_RADIO,
     CONF_VOLUME_NORMALIZATION_TARGET,
@@ -994,7 +994,11 @@ def is_output_limiter_enabled(mass: MusicAssistant, player: Player) -> bool:
     elif player.synced_to:
         # Not in sync group, but synced, get from the leader
         deciding_player_id = player.synced_to
-    return mass.config.get_raw_player_config_value(deciding_player_id, CONF_OUTPUT_LIMITER, True)
+    return mass.config.get_raw_player_config_value(
+        deciding_player_id,
+        CONF_ENTRY_OUTPUT_LIMITER.key,
+        CONF_ENTRY_OUTPUT_LIMITER.default_value,
+    )
 
 
 def get_player_filter_params(
