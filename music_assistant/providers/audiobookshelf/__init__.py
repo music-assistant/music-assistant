@@ -55,6 +55,7 @@ from .constants import (
     CACHE_KEY_LIBRARIES,
     CONF_HIDE_EMPTY_PODCASTS,
     CONF_PASSWORD,
+    CONF_TOKEN,
     CONF_URL,
     CONF_USERNAME,
     CONF_VERIFY_SSL,
@@ -98,6 +99,14 @@ async def get_config_entries(
     # ruff: noqa: ARG001
     return (
         ConfigEntry(
+            key="label",
+            type=ConfigEntryType.LABEL,
+            label="Please provide the address of your Audiobookshelf instance. To authenticate "
+            "you have two options: "
+            "a) Provide username AND password. Leave token empty."
+            "b) Provide ONLY the token.",
+        ),
+        ConfigEntry(
             key=CONF_URL,
             type=ConfigEntryType.STRING,
             label="Server",
@@ -108,7 +117,7 @@ async def get_config_entries(
             key=CONF_USERNAME,
             type=ConfigEntryType.STRING,
             label="Username",
-            required=True,
+            required=False,
             description="The username to authenticate to the remote server.",
         ),
         ConfigEntry(
@@ -117,6 +126,14 @@ async def get_config_entries(
             label="Password",
             required=False,
             description="The password to authenticate to the remote server.",
+        ),
+        ConfigEntry(
+            key=CONF_TOKEN,
+            type=ConfigEntryType.SECURE_STRING,
+            label="Token _instead_ of user/ password.",
+            required=False,
+            description="Instead of using username and password, you may provide the user's token."
+            "\nThe token can be seen in Audiobookshelf as an admin user in Settings -> Users.",
         ),
         ConfigEntry(
             key=CONF_VERIFY_SSL,
@@ -156,6 +173,7 @@ class Audiobookshelf(MusicProvider):
         base_url = str(self.config.get_value(CONF_URL))
         username = str(self.config.get_value(CONF_USERNAME))
         password = str(self.config.get_value(CONF_PASSWORD))
+        token = self.config.get_value(CONF_TOKEN)
         verify_ssl = bool(self.config.get_value(CONF_VERIFY_SSL))
         session_config = aioabs.SessionConfiguration(
             session=self.mass.http_session,
@@ -165,9 +183,16 @@ class Audiobookshelf(MusicProvider):
             pagination_items_per_page=30,  # audible provider goes with 50 for pagination
         )
         try:
-            self._client, self._client_socket = await aioabs.get_user_and_socket_client(
-                session_config=session_config, username=username, password=password
-            )
+            if token is not None:
+                session_config.token = str(token)
+                (
+                    self._client,
+                    self._client_socket,
+                ) = await aioabs.get_user_and_socket_client_by_token(session_config=session_config)
+            else:
+                self._client, self._client_socket = await aioabs.get_user_and_socket_client(
+                    session_config=session_config, username=username, password=password
+                )
             await self._client_socket.init_client()
         except AbsLoginError as exc:
             raise LoginFailed(f"Login to abs instance at {base_url} failed.") from exc
