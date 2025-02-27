@@ -263,7 +263,7 @@ class ITunesPodcastsProvider(MusicProvider):
         raise MediaNotFoundError("Episode not found")
 
     async def get_stream_details(self, item_id: str, media_type: MediaType) -> StreamDetails:
-        """Get stream of item."""
+        """Get streamdetails for item."""
         _, episode_id, _ = item_id.split(" ")
         return StreamDetails(
             provider=self.lookup_key,
