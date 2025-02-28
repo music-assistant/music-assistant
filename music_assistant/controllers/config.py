@@ -835,14 +835,9 @@ class ConfigController:
                     player := players.get(player_id)
                 ):
                     player["values"][CONF_OUTPUT_LIMITER] = False
-                # The output_limiter option in the DSP config is now only used for knowing
-                # if the user disabled the limiter before. We therefore need to set it
-                # to the default value (so enabled), so this migration logic will never be called
-                # anymore for this player.
-                dsp_config["output_limiter"] = True
-            else:
-                # This prevents magic disabling of the limiter when the DSP is activated again
-                dsp_config["output_limiter"] = True
+            # Delete the old option, so this migration logic will never be called
+            # anymore for this player.
+            del dsp_config["output_limiter"]
             changed = True
 
         # set 'onboard_done' flag if we have any (non default) provider configs
