@@ -203,15 +203,20 @@ class HomeAssistantPlayers(PlayerProvider):
             supported_sample_rates: list[int] = []
             supported_bit_depths: list[int] = []
             codec: str | None = None
-            for supported_format in player.extra_data["esphome_supported_audio_formats"]:
-                if supported_format["purpose"] != 0:
-                    continue
+            supported_formats: list[ESPHomeSupportedAudioFormat] = player.extra_data[
+                "esphome_supported_audio_formats"
+            ]
+            # sort on purpose field, so we prefer the media pipeline
+            # but allows fallback to announcements pipeline if no media pipeline is available
+            supported_formats.sort(key=lambda x: x["purpose"])
+            for supported_format in supported_formats:
                 codec = supported_format["format"]
                 if supported_format["sample_rate"] not in supported_sample_rates:
                     supported_sample_rates.append(supported_format["sample_rate"])
                 bit_depth = supported_format["sample_bytes"] * 8
                 if bit_depth not in supported_bit_depths:
                     supported_bit_depths.append(bit_depth)
+
             return (
                 *base_entries,
                 # New ESPHome mediaplayer (used in Voice PE) uses FLAC 48khz/16 bits

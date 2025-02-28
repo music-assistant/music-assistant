@@ -542,6 +542,11 @@ def create_sample_rates_config_entry(
     options: list[ConfigValueOption] = []
     default_value: list[str] = []
 
+    if not supported_sample_rates and max_sample_rate is None:
+        supported_sample_rates = [44100]
+    if not supported_bit_depths and max_bit_depth is None:
+        supported_bit_depths = [16]
+
     for option in CONF_ENTRY_SAMPLE_RATES.options:
         option_value = cast(str, option.value)
         sample_rate_str, bit_depth_str = option_value.split(MULTI_VALUE_SPLITTER, 1)
