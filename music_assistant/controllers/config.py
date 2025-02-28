@@ -460,20 +460,7 @@ class ConfigController:
         In case the player does not have a DSP configuration, a default one is returned.
         """
         if raw_conf := self.get(f"{CONF_PLAYER_DSP}/{player_id}"):
-            config = DSPConfig.from_dict(raw_conf)
-            if config.enabled and not config.output_limiter:
-                # The DSP is enabled, and the user disabled the output limiter in a prior version
-                # Migrate the output limiter option to the player config
-                self.mass.config.set_raw_player_config_value(player_id, CONF_OUTPUT_LIMITER, False)
-                # The output_limiter option in the DSP config is now only used for knowing
-                # if the user disabled the limiter before. We therefore need to set it
-                # to the default value (so enabled), so this migration logic will never be called
-                # anymore for this player.
-                # TODO: remove this in a future release
-                config.output_limiter = True
-                self.set(f"{CONF_PLAYER_DSP}/{player_id}", config.to_dict())
-
-            return config
+            return DSPConfig.from_dict(raw_conf)
         else:
             # return default DSP config
             dsp_config = DSPConfig()
@@ -834,6 +821,30 @@ class ConfigController:
                 for x in sample_rates
             ]
             changed = True
+        # migrate DSPConfig.output_limiter
+        for player_id, dsp_config in list(self._data.get(CONF_PLAYER_DSP, {}).items()):
+            output_limiter = dsp_config.get("output_limiter")
+            enabled = dsp_config.get("enabled")
+            if output_limiter is None or enabled is None or output_limiter:
+                continue
+
+            if enabled:
+                # The DSP is enabled, and the user disabled the output limiter in a prior version
+                # Migrate the output limiter option to the player config
+                if (players := self._data.get(f"{CONF_PLAYERS}")) and (
+                    player := players.get(player_id)
+                ):
+                    player["values"][CONF_OUTPUT_LIMITER] = False
+                # The output_limiter option in the DSP config is now only used for knowing
+                # if the user disabled the limiter before. We therefore need to set it
+                # to the default value (so enabled), so this migration logic will never be called
+                # anymore for this player.
+                dsp_config["output_limiter"] = True
+            else:
+                # This prevents magic disabling of the limiter when the DSP is activated again
+                dsp_config["output_limiter"] = True
+            changed = True
+
         # set 'onboard_done' flag if we have any (non default) provider configs
         if not self._data.get(CONF_ONBOARD_DONE):
             default_providers = {x.domain for x in self.mass.get_provider_manifests() if x.builtin}
