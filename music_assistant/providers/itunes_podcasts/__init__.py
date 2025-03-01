@@ -46,6 +46,9 @@ if TYPE_CHECKING:
 
 CONF_LOCALE = "locale"
 CONF_EXPLICIT = "explicit"
+CONF_NUM_EPISODES = "num_episodes"
+
+CACHE_CATEGORY_PODCASTS = 0
 
 
 async def setup(
@@ -83,6 +86,14 @@ async def get_config_entries(
             options=language_options,
         ),
         ConfigEntry(
+            key=CONF_NUM_EPISODES,
+            type=ConfigEntryType.INTEGER,
+            label="Maximum number of episodes. 0 for unlimited.",
+            required=False,
+            description="Maximum number of episodes. 0 for unlimited.",
+            default_value=0,
+        ),
+        ConfigEntry(
             key=CONF_EXPLICIT,
             type=ConfigEntryType.BOOLEAN,
             label="Include explicit results",
@@ -113,7 +124,7 @@ class ITunesPodcastsProvider(MusicProvider):
 
     async def handle_async_init(self) -> None:
         """Handle async initialization of the provider."""
-        self.max_episodes = 0
+        self.max_episodes = int(str(self.config.get_value(CONF_NUM_EPISODES)))
         # 20 requests per minute, be a bit below
         self.throttler = ThrottlerManager(rate_limit=18, period=60)
 
@@ -188,26 +199,9 @@ class ITunesPodcastsProvider(MusicProvider):
             podcast_list.append(podcast)
         return podcast_list
 
-    async def _get_parsed_podcast(self, prov_podcast_id: str) -> dict[str, Any]:
-        # cache this?
-        # see music-assistant/server@6aae82e
-        response = await self.mass.http_session.get(
-            prov_podcast_id, headers={"User-Agent": "Mozilla/5.0"}
-        )
-        if response.status != 200:
-            raise MediaNotFoundError("Podcast not found!")
-        feed_data = await response.read()
-        feed_stream = BytesIO(feed_data)
-        # how to type hint? dict from lib
-        return podcastparser.parse(  # type: ignore [no-any-return]
-            prov_podcast_id,
-            feed_stream,
-            max_episodes=self.max_episodes,
-        )
-
     async def get_podcast(self, prov_podcast_id: str) -> Podcast:
         """Get podcast."""
-        parsed = await self._get_parsed_podcast(prov_podcast_id)
+        parsed = await self._get_cached_podcast(prov_podcast_id)
 
         return parse_podcast(
             feed_url=prov_podcast_id,
@@ -221,7 +215,7 @@ class ITunesPodcastsProvider(MusicProvider):
         self, prov_podcast_id: str
     ) -> AsyncGenerator[PodcastEpisode, None]:
         """Get podcast episodes."""
-        podcast = await self._get_parsed_podcast(prov_podcast_id)
+        podcast = await self._get_cached_podcast(prov_podcast_id)
         podcast_cover = podcast.get("cover_url")
         episodes = podcast.get("episodes", [])
         for cnt, episode in enumerate(episodes):
@@ -238,7 +232,7 @@ class ITunesPodcastsProvider(MusicProvider):
     async def get_podcast_episode(self, prov_episode_id: str) -> PodcastEpisode:
         """Get single podcast episode."""
         prov_podcast_id, guid_or_stream_url = prov_episode_id.split(" ")
-        podcast = await self._get_parsed_podcast(prov_podcast_id)
+        podcast = await self._get_cached_podcast(prov_podcast_id)
         podcast_cover = podcast.get("cover_url")
         episodes = podcast.get("episodes", [])
         for cnt, episode in enumerate(episodes):
@@ -260,7 +254,7 @@ class ITunesPodcastsProvider(MusicProvider):
         raise MediaNotFoundError("Episode not found")
 
     async def _get_episode_stream_url(self, podcast_id: str, guid_or_stream_url: str) -> str | None:
-        podcast = await self._get_parsed_podcast(podcast_id)
+        podcast = await self._get_cached_podcast(podcast_id)
         episodes = podcast.get("episodes", [])
         for cnt, episode in enumerate(episodes):
             episode_enclosures = episode.get("enclosures", [])
@@ -288,4 +282,37 @@ class ITunesPodcastsProvider(MusicProvider):
             path=stream_url,
             can_seek=True,
             allow_seek=True,
+        )
+
+    async def _get_cached_podcast(self, prov_podcast_id: str) -> dict[str, Any]:
+        parsed_podcast = await self.mass.cache.get(
+            key=prov_podcast_id,
+            base_key=self.lookup_key,
+            category=CACHE_CATEGORY_PODCASTS,
+            default=None,
+        )
+        if parsed_podcast is None:
+            # see music-assistant/server@6aae82e
+            response = await self.mass.http_session.get(
+                prov_podcast_id, headers={"User-Agent": "Mozilla/5.0"}
+            )
+            if response.status != 200:
+                raise RuntimeError
+            feed_data = await response.read()
+            feed_stream = BytesIO(feed_data)
+            parsed_podcast = podcastparser.parse(
+                prov_podcast_id, feed_stream, max_episodes=self.max_episodes
+            )
+            await self._cache_set_podcast(feed_url=prov_podcast_id, parsed_podcast=parsed_podcast)
+
+        # this is a dictionary from podcastparser
+        return parsed_podcast  # type: ignore[no-any-return]
+
+    async def _cache_set_podcast(self, feed_url: str, parsed_podcast: dict[str, Any]) -> None:
+        await self.mass.cache.set(
+            key=feed_url,
+            base_key=self.lookup_key,
+            category=CACHE_CATEGORY_PODCASTS,
+            data=parsed_podcast,
+            expiration=60 * 60 * 24,  # 1 day
         )
