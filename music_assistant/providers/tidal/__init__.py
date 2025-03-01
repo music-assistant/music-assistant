@@ -5,15 +5,11 @@ from __future__ import annotations
 import asyncio
 import functools
 import json
-import random
-import time
-import urllib
 from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import suppress
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
-import pkce
 from aiohttp import ClientResponse
 from music_assistant_models.config_entries import (
     ConfigEntry,
@@ -50,15 +46,13 @@ from music_assistant_models.media_items import (
 )
 from music_assistant_models.streamdetails import StreamDetails
 
-from music_assistant.constants import CACHE_CATEGORY_DEFAULT
-from music_assistant.helpers.app_vars import app_var  # type: ignore[attr-defined]
-from music_assistant.helpers.auth import AuthenticationHelper
-from music_assistant.helpers.json import json_loads
 from music_assistant.helpers.throttle_retry import (
     ThrottlerManager,
     throttle_with_retries,
 )
 from music_assistant.models.music_provider import MusicProvider
+
+from .auth_manager import ManualAuthenticationHelper, TidalAuthManager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -117,121 +111,6 @@ async def setup(
     return TidalProvider(mass, manifest, config)
 
 
-async def tidal_auth_url(auth_helper: AuthenticationHelper, quality: str) -> str:
-    """Generate the Tidal authentication URL."""
-    # Generate PKCE challenge
-    code_verifier, code_challenge = pkce.generate_pkce_pair()
-    # Generate unique client key
-    client_unique_key = format(random.getrandbits(64), "02x")
-    # Store these values for later use
-    auth_params = {
-        "code_verifier": code_verifier,
-        "client_unique_key": client_unique_key,
-        "client_id": app_var(9),
-        "client_secret": app_var(10),
-        "quality": quality,
-    }
-
-    # Create auth URL
-    params = {
-        "response_type": "code",
-        "redirect_uri": "https://tidal.com/android/login/auth",
-        "client_id": auth_params["client_id"],
-        "lang": "EN",
-        "appMode": "android",
-        "client_unique_key": client_unique_key,
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
-        "restrict_signup": "true",
-    }
-
-    url = f"https://login.tidal.com/authorize?{urllib.parse.urlencode(params)}"
-
-    # Send URL to user
-    auth_helper.mass.loop.call_soon_threadsafe(auth_helper.send_url, url)
-
-    # Return serialized auth params
-    return json.dumps(auth_params)
-
-
-async def tidal_pkce_login(
-    base64_auth_params: str, redirect_url: str, mass: MusicAssistant
-) -> dict[str, Any]:
-    """Process TIDAL authentication with PKCE flow."""
-    # Parse the stored auth parameters
-    try:
-        auth_params = json.loads(base64_auth_params)
-    except json.JSONDecodeError as err:
-        raise LoginFailed("Invalid authentication data") from err
-
-    # Extract required parameters
-    code_verifier = auth_params.get("code_verifier")
-    client_unique_key = auth_params.get("client_unique_key")
-    client_secret = auth_params.get("client_secret")
-    client_id = auth_params.get("client_id")
-    quality = auth_params.get("quality")
-
-    if not code_verifier or not client_unique_key:
-        raise LoginFailed("Missing required authentication parameters")
-
-    # Extract the authorization code from the redirect URL
-    parsed_url = urllib.parse.urlparse(redirect_url)
-    query_params = urllib.parse.parse_qs(parsed_url.query)
-    code = query_params.get("code", [""])[0]
-
-    if not code:
-        raise LoginFailed("No authorization code found in redirect URL")
-
-    # Prepare the token exchange request
-    token_url = "https://auth.tidal.com/v1/oauth2/token"
-    data = {
-        "code": code,
-        "client_id": client_id,
-        "grant_type": "authorization_code",
-        "redirect_uri": "https://tidal.com/android/login/auth",
-        "scope": "r_usr w_usr w_sub",
-        "code_verifier": code_verifier,
-        "client_unique_key": client_unique_key,
-    }
-
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
-    # Make the token exchange request using mass.http_session
-    async with mass.http_session.post(token_url, data=data, headers=headers) as response:
-        if response.status != 200:
-            error_text = await response.text()
-            raise LoginFailed(f"Token exchange failed: {error_text}")
-
-        token_data = await response.json()
-
-    # Validate we have authentication data
-    if not token_data.get("access_token") or not token_data.get("refresh_token"):
-        raise LoginFailed("Failed to obtain authentication tokens from Tidal")
-
-    # Get user information using the new token
-    headers = {"Authorization": f"Bearer {token_data['access_token']}"}
-    sessions_url = "https://api.tidal.com/v1/sessions"
-
-    # Again use mass.http_session
-    async with mass.http_session.get(sessions_url, headers=headers) as response:
-        if response.status != 200:
-            error_text = await response.text()
-            raise LoginFailed(f"Failed to get user info: {error_text}")
-
-        user_info = await response.json()
-
-    # Combine token and user info, add expiration time
-    auth_data = {**token_data, **user_info}
-
-    # Add standard fields used by TidalProvider
-    auth_data["expires_at"] = time.time() + token_data.get("expires_in", 3600)
-    auth_data["quality"] = quality
-    auth_data["client_id"] = client_id
-    auth_data["client_secret"] = client_secret
-
-    return auth_data
-
-
 async def get_config_entries(
     mass: MusicAssistant,
     instance_id: str | None = None,  # noqa: ARG001
@@ -248,11 +127,15 @@ async def get_config_entries(
     assert values is not None
 
     if action == CONF_ACTION_START_PKCE_LOGIN:
-        async with AuthenticationHelper(mass, cast(str, values["session_id"])) as auth_helper:
+        async with ManualAuthenticationHelper(
+            mass, cast(str, values["session_id"])
+        ) as auth_helper:
             quality = str(values.get(CONF_QUALITY))
-            base64_session = await tidal_auth_url(auth_helper, quality)
+            base64_session = await TidalAuthManager.generate_auth_url(
+                auth_helper, quality
+            )
             values[CONF_TEMP_SESSION] = base64_session
-            # Tidal is (ab)using the AuthenticationHelper just to send the user to an URL
+            # Tidal is using the ManualAuthenticationHelper just to send the user to an URL
             # there is no actual oauth callback happening, instead the user is redirected
             # to a non-existent page and needs to copy the URL from the browser and paste it
             # we simply wait here to allow the user to start the auth
@@ -262,7 +145,9 @@ async def get_config_entries(
         quality = str(values.get(CONF_QUALITY))
         pkce_url = str(values.get(CONF_OOPS_URL))
         base64_session = str(values.get(CONF_TEMP_SESSION))
-        auth_data = await tidal_pkce_login(base64_session, pkce_url, mass)
+        auth_data = await TidalAuthManager.process_pkce_login(
+            mass.http_session, base64_session, pkce_url
+        )
         # set the retrieved token on the values object to pass along
         values[CONF_AUTH_DATA] = json.dumps(auth_data)
         values[CONF_TEMP_SESSION] = ""
@@ -291,8 +176,12 @@ async def get_config_entries(
                 label=CONF_QUALITY,
                 required=True,
                 hidden=True,
-                value=cast(str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value),
-                default_value=cast(str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value),
+                value=cast(
+                    str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value
+                ),
+                default_value=cast(
+                    str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value
+                ),
             ),
         )
     else:
@@ -395,34 +284,39 @@ class TidalProvider(MusicProvider):
 
     BASE_URL: str = "https://api.tidal.com/v1"
     OPEN_API_URL: str = "https://openapi.tidal.com/v2/"
-    AUTH_URL: str = "https://auth.tidal.com/v1/oauth2"
-    LOGIN_URL: str = "https://login.tidal.com"
-    REDIRECT_URI: str = "https://tidal.com/android/login/auth"
-
-    _auth_info: dict[str, Any] | None = None
-    _user_id: str | None = None
-    _country_code: str | None = None
-    _session_id: str | None = None
 
     throttler = ThrottlerManager(rate_limit=1, period=2)
+
+    def __init__(
+        self, mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig
+    ):
+        """Initialize Tidal provider."""
+        super().__init__(mass, manifest, config)
+        self.auth = TidalAuthManager(
+            http_session=mass.http_session,
+            config_updater=self._update_auth_config,
+            logger=self.logger,
+        )
+
+    def _update_auth_config(self, auth_info: dict[str, Any]) -> None:
+        """Update auth config with new auth info."""
+        self.update_config_value(CONF_AUTH_DATA, json.dumps(auth_info), encrypted=True)
 
     async def handle_async_init(self) -> None:
         """Handle async initialization of the provider."""
         # Load auth info from config
-        # Cast to make type checker happy
         auth_data = cast(str, self.config.get_value(CONF_AUTH_DATA))
         if not auth_data:
             raise LoginFailed("Missing authentication data")
 
-        # Parse stored auth data
-        self._auth_info = json_loads(auth_data)
-
-        # Validate tokens
-        if not await self._ensure_valid_token():
+        # Initialize auth manager
+        if not await self.auth.initialize(auth_data):
             raise LoginFailed("Failed to authenticate with Tidal")
 
-        # Get user information
-        await self._refresh_user_info()
+        # Get user information from sessions API
+        api_result = await self._get_data("sessions")
+        user_info = self._extract_data(api_result)
+        await self.auth.update_user_info(user_info)
 
     @property
     def supported_features(self) -> set[ProviderFeature]:
@@ -445,98 +339,33 @@ class TidalProvider(MusicProvider):
             ProviderFeature.PLAYLIST_TRACKS_EDIT,
         }
 
-    # Token management
-    async def _ensure_valid_token(self) -> bool:
-        """Ensure we have a valid token, refresh if needed."""
-        if not self._auth_info:
-            return False
-
-        # Check if token is expired
-        expires_at = self._auth_info.get("expires_at", 0)
-        if expires_at < time.time() - 60:  # Buffer of 60 seconds
-            try:
-                return await self._refresh_token()
-            except Exception as err:
-                self.logger.error("Failed to refresh Tidal token: %s", err)
-                return False
-
-        return True
-
-    async def _refresh_token(self) -> bool:
-        """Refresh the auth token."""
-        if not self._auth_info or not self._auth_info.get("refresh_token"):
-            return False
-
-        data = {
-            "refresh_token": self._auth_info["refresh_token"],
-            "client_id": self._auth_info["client_id"],
-            "grant_type": "refresh_token",
-            "scope": "r_usr w_usr w_sub",
-        }
-
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
-        async with self.mass.http_session.post(
-            f"{self.AUTH_URL}/token", data=data, headers=headers
-        ) as response:
-            if response.status != 200:
-                self.logger.error("Failed to refresh token: %s", await response.text())
-                return False
-
-            token_data = await response.json()
-
-            # Update auth info
-            self._auth_info["access_token"] = token_data["access_token"]
-            if "refresh_token" in token_data:
-                self._auth_info["refresh_token"] = token_data["refresh_token"]
-
-            # Update expiration
-            if "expires_in" in token_data:
-                self._auth_info["expires_at"] = time.time() + token_data["expires_in"]
-
-            # Store updated auth info
-            self.update_config_value(CONF_AUTH_DATA, json.dumps(self._auth_info), encrypted=True)
-
-            return True
-
-    async def _refresh_user_info(self) -> None:
-        """Get user info and store user ID, country code, and session ID."""
-        api_result = await self._get_data("sessions")
-        user_info = self._extract_data(api_result)
-        self._user_id = user_info.get("userId")
-        self._country_code = user_info.get("countryCode")
-        self._session_id = user_info.get("sessionId")
-
     @staticmethod
-    def prepare_api_request(method: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    def prepare_api_request(
+        method: Callable[..., Awaitable[T]]
+    ) -> Callable[..., Awaitable[T]]:
         """Prepare API requests with authentication and common parameters."""
 
         @functools.wraps(method)
         async def wrapper(self: TidalProvider, endpoint: str, **kwargs: Any) -> T:
-            # Ensure we have a valid token
-            if not await self._ensure_valid_token():
-                raise LoginFailed("Failed to authenticate with Tidal")
-
-            # After _ensure_valid_token() succeeds, we know _auth_info is not None
-            auth_info = self._auth_info
-            if not auth_info:
+            # Ensure we have a valid token through auth manager
+            if not await self.auth.ensure_valid_token():
                 raise LoginFailed("Failed to authenticate with Tidal")
 
             # Add required parameters to every request
             params = kwargs.pop("params", {}) or {}
 
             # Add session ID and country code if available
-            if self._session_id:
-                params["sessionId"] = self._session_id
+            if self.auth.session_id:
+                params["sessionId"] = self.auth.session_id
 
-            if self._country_code:
-                params["countryCode"] = self._country_code
+            if self.auth.country_code:
+                params["countryCode"] = self.auth.country_code
 
             kwargs["params"] = params
 
             # Prepare headers
             headers = kwargs.pop("headers", {}) or {}
-            headers["Authorization"] = f"Bearer {auth_info['access_token']}"
+            headers["Authorization"] = f"Bearer {self.auth.access_token}"
 
             # Add locale headers
             locale = self.mass.metadata.locale.replace("_", "-")
@@ -584,14 +413,18 @@ class TidalProvider(MusicProvider):
             headers["Content-Type"] = "application/x-www-form-urlencoded"
             kwargs["headers"] = headers
             # Use data parameter for form-encoded data
-            async with self.mass.http_session.post(url, data=data, **kwargs) as response:
+            async with self.mass.http_session.post(
+                url, data=data, **kwargs
+            ) as response:
                 return cast(
                     dict[str, Any],
                     await self._handle_response(response, return_etag=False),
                 )
         else:
             # Use json parameter for JSON data (default)
-            async with self.mass.http_session.post(url, json=data, **kwargs) as response:
+            async with self.mass.http_session.post(
+                url, json=data, **kwargs
+            ) as response:
                 return cast(
                     dict[str, Any],
                     await self._handle_response(response, return_etag=False),
@@ -607,7 +440,9 @@ class TidalProvider(MusicProvider):
 
         # For DELETE requests with a body, we need to use json parameter
         async with self.mass.http_session.delete(url, json=data, **kwargs) as response:
-            return cast(dict[str, Any], await self._handle_response(response, return_etag=False))
+            return cast(
+                dict[str, Any], await self._handle_response(response, return_etag=False)
+            )
 
     async def _handle_response(
         self, response: ClientResponse, return_etag: bool = False
@@ -623,7 +458,9 @@ class TidalProvider(MusicProvider):
 
         if response.status == 429:
             retry_after = int(response.headers.get("Retry-After", 30))
-            raise ResourceTemporarilyUnavailable("Rate limit reached", backoff_time=retry_after)
+            raise ResourceTemporarilyUnavailable(
+                "Rate limit reached", backoff_time=retry_after
+            )
 
         if response.status == 412:
             text = await response.text()
@@ -714,20 +551,26 @@ class TidalProvider(MusicProvider):
     @staticmethod
     def handle_item_errors(
         item_type: str,
-    ) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
+    ) -> Callable[
+        [Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]
+    ]:
         """Handle standard error patterns in item getters."""
 
         def decorator(
             method: Callable[..., Coroutine[Any, Any, T]],
         ) -> Callable[..., Coroutine[Any, Any, T]]:
             @functools.wraps(method)
-            async def wrapper(self: TidalProvider, item_id: str, *args: Any, **kwargs: Any) -> T:
+            async def wrapper(
+                self: TidalProvider, item_id: str, *args: Any, **kwargs: Any
+            ) -> T:
                 try:
                     return await method(self, item_id, *args, **kwargs)
                 except ResourceTemporarilyUnavailable:
                     raise
                 except Exception as err:
-                    raise MediaNotFoundError(f"{item_type} {item_id} not found") from err
+                    raise MediaNotFoundError(
+                        f"{item_type} {item_id} not found"
+                    ) from err
 
             return wrapper
 
@@ -749,7 +592,8 @@ class TidalProvider(MusicProvider):
         media_types = [
             x
             for x in media_types
-            if x in (MediaType.ARTIST, MediaType.ALBUM, MediaType.TRACK, MediaType.PLAYLIST)
+            if x
+            in (MediaType.ARTIST, MediaType.ALBUM, MediaType.TRACK, MediaType.PLAYLIST)
         ]
         if not media_types:
             return parsed_results
@@ -776,7 +620,8 @@ class TidalProvider(MusicProvider):
             ]
         if results["playlists"]:
             parsed_results.playlists = [
-                self._parse_playlist(playlist) for playlist in results["playlists"]["items"]
+                self._parse_playlist(playlist)
+                for playlist in results["playlists"]["items"]
             ]
         if results["tracks"]:
             parsed_results.tracks = [
@@ -786,7 +631,7 @@ class TidalProvider(MusicProvider):
 
     async def get_library_artists(self) -> AsyncGenerator[Artist, None]:
         """Retrieve all library artists from Tidal."""
-        user_id = self._user_id
+        user_id = self.auth.user_id
         path = f"users/{user_id}/favorites/artists"
 
         async for artist_item in self._paginate_api(path, nested_key="item"):
@@ -795,7 +640,7 @@ class TidalProvider(MusicProvider):
 
     async def get_library_albums(self) -> AsyncGenerator[Album, None]:
         """Retrieve all library albums from Tidal."""
-        user_id = self._user_id
+        user_id = self.auth.user_id
         path = f"users/{user_id}/favorites/albums"
 
         async for album_item in self._paginate_api(path, nested_key="item"):
@@ -804,7 +649,7 @@ class TidalProvider(MusicProvider):
 
     async def get_library_tracks(self) -> AsyncGenerator[Track, None]:
         """Retrieve library tracks from Tidal."""
-        user_id = self._user_id
+        user_id = self.auth.user_id
         path = f"users/{user_id}/favorites/tracks"
 
         async for track_item in self._paginate_api(path, nested_key="item"):
@@ -813,7 +658,7 @@ class TidalProvider(MusicProvider):
 
     async def get_library_playlists(self) -> AsyncGenerator[Playlist, None]:
         """Retrieve all library playlists from the provider."""
-        user_id = self._user_id
+        user_id = self.auth.user_id
         path = f"users/{user_id}/playlistsAndFavoritePlaylists"
 
         async for playlist_item in self._paginate_api(path, nested_key="playlist"):
@@ -826,7 +671,10 @@ class TidalProvider(MusicProvider):
             # Use _get_data directly instead of TidalClient
             api_result = await self._get_data(f"albums/{prov_album_id}/tracks")
             album_tracks = self._extract_data(api_result)
-            return [self._parse_track(track_obj) for track_obj in album_tracks.get("items", [])]
+            return [
+                self._parse_track(track_obj)
+                for track_obj in album_tracks.get("items", [])
+            ]
         except MediaNotFoundError as err:
             raise MediaNotFoundError(f"Album {prov_album_id} not found") from err
 
@@ -835,7 +683,10 @@ class TidalProvider(MusicProvider):
         try:
             api_result = await self._get_data(f"artists/{prov_artist_id}/albums")
             artist_albums = self._extract_data(api_result)
-            return [self._parse_album(album_obj) for album_obj in artist_albums.get("items", [])]
+            return [
+                self._parse_album(album_obj)
+                for album_obj in artist_albums.get("items", [])
+            ]
         except MediaNotFoundError as err:
             raise MediaNotFoundError(f"Artist {prov_artist_id} not found") from err
 
@@ -847,12 +698,15 @@ class TidalProvider(MusicProvider):
             )
             artist_top_tracks = self._extract_data(api_result)
             return [
-                self._parse_track(track_obj) for track_obj in artist_top_tracks.get("items", [])
+                self._parse_track(track_obj)
+                for track_obj in artist_top_tracks.get("items", [])
             ]
         except MediaNotFoundError as err:
             raise MediaNotFoundError(f"Artist {prov_artist_id} not found") from err
 
-    async def get_playlist_tracks(self, prov_playlist_id: str, page: int = 0) -> list[Track]:
+    async def get_playlist_tracks(
+        self, prov_playlist_id: str, page: int = 0
+    ) -> list[Track]:
         """Get playlist tracks."""
         result: list[Track] = []
         page_size = 200
@@ -868,12 +722,17 @@ class TidalProvider(MusicProvider):
             result.append(track)
         return result
 
-    async def get_similar_tracks(self, prov_track_id: str, limit: int = 25) -> list[Track]:
+    async def get_similar_tracks(
+        self, prov_track_id: str, limit: int = 25
+    ) -> list[Track]:
         """Get similar tracks for given track id."""
         try:
             api_result = await self._get_data(f"tracks/{prov_track_id}/radios")
             similar_tracks = self._extract_data(api_result)
-            return [self._parse_track(track_obj) for track_obj in similar_tracks.get("items", [])]
+            return [
+                self._parse_track(track_obj)
+                for track_obj in similar_tracks.get("items", [])
+            ]
         except MediaNotFoundError as err:
             raise MediaNotFoundError(f"Track {prov_track_id} not found") from err
 
@@ -904,13 +763,21 @@ class TidalProvider(MusicProvider):
         """Remove item from library."""
         try:
             if media_type == MediaType.ARTIST:
-                await self._delete_data("favorites/artists", data={"artistId": prov_item_id})
+                await self._delete_data(
+                    "favorites/artists", data={"artistId": prov_item_id}
+                )
             elif media_type == MediaType.ALBUM:
-                await self._delete_data("favorites/albums", data={"albumId": prov_item_id})
+                await self._delete_data(
+                    "favorites/albums", data={"albumId": prov_item_id}
+                )
             elif media_type == MediaType.TRACK:
-                await self._delete_data("favorites/tracks", data={"trackId": prov_item_id})
+                await self._delete_data(
+                    "favorites/tracks", data={"trackId": prov_item_id}
+                )
             elif media_type == MediaType.PLAYLIST:
-                await self._delete_data("favorites/playlists", data={"playlistId": prov_item_id})
+                await self._delete_data(
+                    "favorites/playlists", data={"playlistId": prov_item_id}
+                )
             else:
                 return False
 
@@ -919,11 +786,15 @@ class TidalProvider(MusicProvider):
             self.logger.error("Failed to remove item from library: %s", err)
             return False
 
-    async def add_playlist_tracks(self, prov_playlist_id: str, prov_track_ids: list[str]) -> None:
+    async def add_playlist_tracks(
+        self, prov_playlist_id: str, prov_track_ids: list[str]
+    ) -> None:
         """Add track(s) to playlist."""
         try:
             # Get playlist details first with ETag
-            api_result = await self._get_data(f"playlists/{prov_playlist_id}", return_etag=True)
+            api_result = await self._get_data(
+                f"playlists/{prov_playlist_id}", return_etag=True
+            )
             playlist_obj, etag = self._extract_data_and_etag(api_result)
 
             # Send using form-encoded data like the synchronous library
@@ -952,7 +823,9 @@ class TidalProvider(MusicProvider):
         """Remove track(s) from playlist."""
         try:
             # Get playlist with ETag first
-            api_result = await self._get_data(f"playlists/{prov_playlist_id}", return_etag=True)
+            api_result = await self._get_data(
+                f"playlists/{prov_playlist_id}", return_etag=True
+            )
             _, etag = self._extract_data_and_etag(api_result)
 
             # Format positions as string in URL path - this is key to how Tidal's API works
@@ -969,7 +842,9 @@ class TidalProvider(MusicProvider):
 
         except Exception as err:
             self.logger.error("Failed to remove tracks from playlist: %s", err)
-            raise ResourceTemporarilyUnavailable("Failed to remove playlist tracks") from err
+            raise ResourceTemporarilyUnavailable(
+                "Failed to remove playlist tracks"
+            ) from err
 
     async def create_playlist(self, name: str) -> Playlist:
         """Create a new playlist on provider with given name."""
@@ -978,7 +853,7 @@ class TidalProvider(MusicProvider):
 
         try:
             playlist_obj = await self._post_data(
-                f"users/{self._user_id}/playlists", data=data, as_form=True
+                f"users/{self.auth.user_id}/playlists", data=data, as_form=True
             )
 
             return self._parse_playlist(playlist_obj)
@@ -1090,7 +965,9 @@ class TidalProvider(MusicProvider):
         playlist_obj = self._extract_data(api_result)
         return self._parse_playlist(playlist_obj)
 
-    def get_item_mapping(self, media_type: MediaType, key: str, name: str) -> ItemMapping:
+    def get_item_mapping(
+        self, media_type: MediaType, key: str, name: str
+    ) -> ItemMapping:
         """Create a generic item mapping."""
         return ItemMapping(
             media_type=media_type,
@@ -1332,7 +1209,7 @@ class TidalProvider(MusicProvider):
         creator_id = None
         if playlist_obj["creator"]:
             creator_id = playlist_obj["creator"]["id"]
-        is_editable = bool(creator_id and str(creator_id) == str(self._user_id))
+        is_editable = bool(creator_id and str(creator_id) == str(self.auth.user_id))
         playlist = Playlist(
             item_id=playlist_id,
             provider=self.instance_id if is_editable else self.lookup_key,
