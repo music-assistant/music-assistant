@@ -84,9 +84,10 @@ def parse_podcast_episode(
     if len(episode_enclosures) < 1:
         raise RuntimeError
     stream_url = episode_enclosures[0].get("url", None)
-    guid = episode.get("guid", stream_url)
+    # not all feeds have a guid, but a guid is preferred as identification
+    guid_or_stream_url = episode.get("guid", stream_url)
 
-    episode_id = f"{prov_podcast_id} {stream_url} {guid}"
+    episode_id = f"{prov_podcast_id} {guid_or_stream_url}"
     mass_episode = PodcastEpisode(
         item_id=episode_id,
         provider=lookup_key,

@@ -237,7 +237,7 @@ class ITunesPodcastsProvider(MusicProvider):
 
     async def get_podcast_episode(self, prov_episode_id: str) -> PodcastEpisode:
         """Get single podcast episode."""
-        prov_podcast_id, episode_id, guid = prov_episode_id.split(" ")
+        prov_podcast_id, guid_or_stream_url = prov_episode_id.split(" ")
         podcast = await self._get_parsed_podcast(prov_podcast_id)
         podcast_cover = podcast.get("cover_url")
         episodes = podcast.get("episodes", [])
@@ -245,9 +245,8 @@ class ITunesPodcastsProvider(MusicProvider):
             episode_enclosures = episode.get("enclosures", [])
             if len(episode_enclosures) < 1:
                 raise RuntimeError
-            _episode_id = episode_enclosures[0].get("url", None)
-            _guid = episode.get("guid")
-            if (_guid is None and episode_id == _episode_id) or guid == _guid:
+            stream_url = episode_enclosures[0].get("url", None)
+            if guid_or_stream_url == episode.get("guid", stream_url):
                 return parse_podcast_episode(
                     episode=episode,
                     prov_podcast_id=prov_podcast_id,
@@ -260,18 +259,33 @@ class ITunesPodcastsProvider(MusicProvider):
 
         raise MediaNotFoundError("Episode not found")
 
+    async def _get_episode_stream_url(self, podcast_id: str, guid_or_stream_url: str) -> str | None:
+        podcast = await self._get_parsed_podcast(podcast_id)
+        episodes = podcast.get("episodes", [])
+        for cnt, episode in enumerate(episodes):
+            episode_enclosures = episode.get("enclosures", [])
+            if len(episode_enclosures) < 1:
+                raise MediaNotFoundError
+            stream_url: str | None = episode_enclosures[0].get("url", None)
+            if guid_or_stream_url == episode.get("guid", stream_url):
+                return stream_url
+        return None
+
     async def get_stream_details(self, item_id: str, media_type: MediaType) -> StreamDetails:
         """Get streamdetails for item."""
-        _, episode_id, _ = item_id.split(" ")
+        podcast_id, guid_or_stream_url = item_id.split(" ")
+        stream_url = await self._get_episode_stream_url(podcast_id, guid_or_stream_url)
+        if stream_url is None:
+            raise MediaNotFoundError
         return StreamDetails(
             provider=self.lookup_key,
             item_id=item_id,
             audio_format=AudioFormat(
-                content_type=ContentType.try_parse(episode_id),
+                content_type=ContentType.try_parse(stream_url),
             ),
             media_type=MediaType.PODCAST_EPISODE,
             stream_type=StreamType.HTTP,
-            path=episode_id,
+            path=stream_url,
             can_seek=True,
             allow_seek=True,
         )
