@@ -18,7 +18,7 @@ import audible
 import audible.register
 from audible import AsyncClient
 from music_assistant_models.enums import ContentType, ImageType, MediaType, StreamType
-from music_assistant_models.errors import LoginFailed
+from music_assistant_models.errors import LoginFailed, MediaNotFoundError
 from music_assistant_models.media_items import (
     Audiobook,
     AudioFormat,
@@ -68,7 +68,6 @@ class AudibleHelper:
         self.client = client
         self.provider_domain = provider_domain
         self.provider_instance = provider_instance
-        # Ensure logger is never None by using a dummy logger if none is provided
         self.logger = logger or logging.getLogger("audible_helper")
 
     async def get_library(self) -> AsyncGenerator[Audiobook, None]:
@@ -113,18 +112,16 @@ class AudibleHelper:
                 "Audible: Got %s items (total reported by API: %s)", len(items), total_items
             )
 
-            # Check if this page had no items (which means we've reached the end)
-            if not items:
+            if not items or len(items) < page_size:
                 self.logger.debug(
-                    "Audible: No more items returned, ending pagination (processed %s items)",
+                    "Audible: No more items or fewer than page size returned, "
+                    "ending pagination (processed %s items)",
                     total_processed,
                 )
                 break
 
-            # Process items in this page
             items_processed_this_page = 0
             for audiobook_data in items:
-                # Check if this is a podcast or non-audio asset that we should skip
                 content_type = audiobook_data.get("content_delivery_type", "")
                 if content_type in ("PodcastParent", "NonAudio"):
                     self.logger.debug(
@@ -150,7 +147,7 @@ class AudibleHelper:
 
                     total_processed += 1
                     items_processed_this_page += 1
-                except ValueError as exc:
+                except MediaNotFoundError as exc:
                     self.logger.warning(f"Skipping invalid audiobook: {exc}")
                     total_processed += 1
                     continue
@@ -159,7 +156,6 @@ class AudibleHelper:
                 "Audible: Processed %s valid audiobooks on page %s", items_processed_this_page, page
             )
 
-            # Continue to the next page
             page += 1
             self.logger.debug(
                 "Audible: Moving to page %s (processed: %s, total reported: %s)",
@@ -168,7 +164,6 @@ class AudibleHelper:
                 total_items,
             )
 
-        # Log the final results
         if iteration >= max_iterations:
             self.logger.warning(
                 "Audible: Reached maximum iteration limit (%s) with %s items processed",
@@ -180,35 +175,36 @@ class AudibleHelper:
                 "Audible: Successfully retrieved %s audiobooks from library", total_processed
             )
 
-    async def get_audiobook(self, asin: str, use_cache: bool = True) -> Audiobook | None:
+    async def get_audiobook(self, asin: str, use_cache: bool = True) -> Audiobook:
         """Fetch the audiobook by asin."""
-        try:
-            if use_cache:
-                cached_book = await self.mass.cache.get(
-                    key=asin, base_key=CACHE_DOMAIN, category=CACHE_CATEGORY_AUDIOBOOK, default=None
-                )
-                if cached_book is not None:
-                    return await self._parse_audiobook(cached_book)
-            response = await self._call_api(
-                f"library/{asin}",
-                response_groups="""
-                    contributors, media, price, product_attrs, product_desc, product_details,
-                    product_extended_attrs,is_finished
-                    """,
+        if use_cache:
+            cached_book = await self.mass.cache.get(
+                key=asin, base_key=CACHE_DOMAIN, category=CACHE_CATEGORY_AUDIOBOOK, default=None
             )
+            if cached_book is not None:
+                return await self._parse_audiobook(cached_book)
+        response = await self._call_api(
+            f"library/{asin}",
+            response_groups="""
+                contributors, media, price, product_attrs, product_desc, product_details,
+                product_extended_attrs,is_finished
+                """,
+        )
 
-            if response is None:
-                return None
-            await self.mass.cache.set(
-                key=asin,
-                base_key=CACHE_DOMAIN,
-                category=CACHE_CATEGORY_AUDIOBOOK,
-                data=response.get("item"),
-            )
-            return await self._parse_audiobook(response.get("item"))
-        except ValueError as exc:
-            self.logger.warning(f"Invalid audiobook data for ASIN {asin}: {exc}")
-            return None
+        if response is None:
+            raise MediaNotFoundError(f"Audiobook with ASIN {asin} not found")
+
+        item_data = response.get("item")
+        if item_data is None:
+            raise MediaNotFoundError(f"Audiobook data for ASIN {asin} is empty")
+
+        await self.mass.cache.set(
+            key=asin,
+            base_key=CACHE_DOMAIN,
+            category=CACHE_CATEGORY_AUDIOBOOK,
+            data=item_data,
+        )
+        return await self._parse_audiobook(item_data)
 
     async def get_stream(self, asin: str) -> StreamDetails:
         """Get stream details for a track (audiobook chapter)."""
@@ -240,7 +236,6 @@ class AudibleHelper:
                 },
             )
 
-            # Safely extract nested values with proper error handling
             content_license = playback_info.get("content_license", {})
             if not content_license:
                 self.logger.error(f"No content_license in playback_info for ASIN {asin}")
@@ -356,8 +351,41 @@ class AudibleHelper:
             return 0
 
     async def set_last_position(self, asin: str, pos: int) -> None:
-        """Report last position."""
-        # TODO: Implement position reporting
+        """Report last position to Audible.
+
+        Args:
+            asin: The audiobook ID
+            pos: Position in seconds
+        """
+        if not asin or asin == "error" or pos <= 0:
+            return
+
+        try:
+            position_ms = pos * 1000
+
+            stream_details = await self.get_stream(asin=asin)
+            acr = stream_details.data.get("acr")
+
+            if not acr:
+                self.logger.warning(f"No ACR available for ASIN {asin}, cannot report position")
+                return
+
+            await self.client.put(
+                f"lastpositions/{asin}", body={"acr": acr, "asin": asin, "position_ms": position_ms}
+            )
+
+            self.logger.debug(f"Successfully reported position {position_ms}ms for ASIN {asin}")
+
+        except (KeyError, TypeError) as exc:
+            self.logger.error(
+                f"Error accessing data while reporting position for ASIN {asin}: {exc}"
+            )
+        except TimeoutError as exc:
+            self.logger.error(f"Timeout while reporting position for ASIN {asin}: {exc}")
+        except ConnectionError as exc:
+            self.logger.error(f"Connection error while reporting position for ASIN {asin}: {exc}")
+        except Exception as exc:
+            self.logger.error(f"Unexpected error reporting position for ASIN {asin}: {exc}")
 
     async def _call_api(self, path: str, **kwargs: Any) -> Any:
         response = None
@@ -370,8 +398,6 @@ class AudibleHelper:
                 key=cache_key_with_params, base_key=CACHE_DOMAIN, category=CACHE_CATEGORY_API
             )
         if not response:
-            # Use the client that was passed in the constructor, which should be using
-            # the cached authenticator from the provider class
             response = await self.client.get(path, **kwargs)
             await self.mass.cache.set(
                 key=cache_key_with_params, base_key=CACHE_DOMAIN, data=response
@@ -381,21 +407,19 @@ class AudibleHelper:
     async def _parse_audiobook(self, audiobook_data: dict[str, Any] | None) -> Audiobook:
         if audiobook_data is None:
             self.logger.error("Received None audiobook_data in _parse_audiobook")
-            raise ValueError("Invalid audiobook data: received None")
+            raise MediaNotFoundError("Audiobook data not found")
 
         asin = audiobook_data.get("asin", "")
         title = audiobook_data.get("title", "")
         authors = []
         narrators = []
 
-        # Safely handle narrators
         narrators_list = audiobook_data.get("narrators") or []
         if isinstance(narrators_list, list):
             for narrator in narrators_list:
                 if narrator and isinstance(narrator, dict):
                     narrators.append(narrator.get("name", "Unknown Narrator"))
 
-        # Safely handle authors
         authors_list = audiobook_data.get("authors") or []
         if isinstance(authors_list, list):
             for author in authors_list:
@@ -452,7 +476,6 @@ class AudibleHelper:
         for index, chapter_data in enumerate(chapters_data):
             start = int(chapter_data.get("start_offset_sec", 0))
             length = int(chapter_data.get("length_ms", 0)) / 1000
-            # Get chapter title with fallback and explicit typing
             raw_title = chapter_data.get("title")
             chapter_title: str
             if raw_title is None:
@@ -484,7 +507,6 @@ def _html_to_txt(html_text: str) -> str:
     return txt
 
 
-# Audible Authorization
 async def audible_get_auth_info(locale: str) -> tuple[str, str, str]:
     """
     Generate the login URL and auth info for Audible OAuth flow asynchronously.
@@ -497,13 +519,8 @@ async def audible_get_auth_info(locale: str) -> tuple[str, str, str]:
         - oauth_url (str): The complete OAuth URL for login
         - serial (str): The generated device serial number
     """
-    # Create locale object (not I/O operation)
     locale_obj = audible.localization.Locale(locale)
-
-    # Create code verifier (potential crypto operations)
     code_verifier = await asyncio.to_thread(audible.login.create_code_verifier)
-
-    # Build OAuth URL (potential network operations)
     oauth_url, serial = await asyncio.to_thread(
         audible.login.build_oauth_url,
         country_code=locale_obj.country_code,
@@ -535,7 +552,6 @@ async def audible_custom_login(
     auth = audible.Authenticator()
     auth.locale = audible.localization.Locale(locale)
 
-    # URL parsing (not I/O operation)
     response_url_parsed = urlparse(response_url)
     parsed_qs = parse_qs(response_url_parsed.query)
 
@@ -543,10 +559,7 @@ async def audible_custom_login(
     if not authorization_codes:
         raise LoginFailed("Authorization code not found in the provided URL.")
 
-    # Get the first authorization code from the list
     authorization_code = authorization_codes[0]
-
-    # Register device (network operation)
     registration_data = await asyncio.to_thread(
         audible.register.register,
         authorization_code=authorization_code,

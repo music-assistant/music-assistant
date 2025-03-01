@@ -17,7 +17,7 @@ from music_assistant_models.config_entries import (
     ProviderConfig,
 )
 from music_assistant_models.enums import ConfigEntryType, EventType, MediaType, ProviderFeature
-from music_assistant_models.errors import LoginFailed
+from music_assistant_models.errors import LoginFailed, MediaNotFoundError
 
 from music_assistant.models.music_provider import MusicProvider
 from music_assistant.providers.audible.audible_helper import (
@@ -76,11 +76,9 @@ async def get_config_entries(
     locale = cast(str, values.get("locale", "") or "us")
     auth_file = cast(str, values.get(CONF_AUTH_FILE))
 
-    # Check if auth file exists and is valid
     auth_required = True
     if auth_file and await check_file_exists(auth_file):
         try:
-            # Use our cached authenticator function to avoid repeated file reads
             auth = await cached_authenticator_from_file(auth_file)
             auth_required = False
         except Exception:
@@ -225,28 +223,34 @@ class Audibleprovider(MusicProvider):
         self.locale = cast(str, self.config.get_value(CONF_LOCALE) or "us")
         self.auth_file = cast(str, self.config.get_value(CONF_AUTH_FILE))
         self._client: audible.AsyncClient | None = None
-        self._auth: audible.Authenticator | None = None
         audible.log_helper.set_level(getLevelName(self.logger.level))
 
     async def handle_async_init(self) -> None:
         """Handle asynchronous initialization of the provider."""
         await self._login()
 
+    # Cache for authenticators to avoid repeated file I/O
+    _AUTH_CACHE: dict[str, audible.Authenticator] = {}
+
     async def _login(self) -> None:
         """Authenticate with Audible using the saved authentication file."""
         try:
-            # Only load the auth file if we don't have a cached authenticator
-            if self._auth is None:
-                self.logger.debug("Loading Audible authentication from file")
-                self._auth = await cached_authenticator_from_file(self.auth_file)
-            # Check if token is expired and refresh if needed
-            if self._auth.access_token_expired:
-                self.logger.debug("Refreshing expired Audible access token")
-                await asyncio.to_thread(self._auth.refresh_access_token)
-                await asyncio.to_thread(self._auth.to_file, self.auth_file)
+            auth = self._AUTH_CACHE.get(self.instance_id)
 
-            # Create client with cached authenticator
-            self._client = audible.AsyncClient(self._auth)
+            if auth is None:
+                self.logger.debug("Loading authenticator from file")
+                auth = await cached_authenticator_from_file(self.auth_file)
+                self._AUTH_CACHE[self.instance_id] = auth
+            else:
+                self.logger.debug("Using cached authenticator")
+
+            if auth.access_token_expired:
+                self.logger.debug("Access token expired, refreshing")
+                await asyncio.to_thread(auth.refresh_access_token)
+                await asyncio.to_thread(auth.to_file, self.auth_file)
+                self._AUTH_CACHE[self.instance_id] = auth
+
+            self._client = audible.AsyncClient(auth)
 
             self.helper = AudibleHelper(
                 mass=self.mass,
@@ -279,10 +283,10 @@ class Audibleprovider(MusicProvider):
 
     async def get_audiobook(self, prov_audiobook_id: str) -> Audiobook:
         """Get full audiobook details by id."""
-        audiobook = await self.helper.get_audiobook(asin=prov_audiobook_id, use_cache=False)
-        if audiobook is None:
-            raise ValueError(f"Audiobook with id {prov_audiobook_id} not found")
-        return audiobook
+        try:
+            return await self.helper.get_audiobook(asin=prov_audiobook_id, use_cache=False)
+        except MediaNotFoundError as err:
+            raise MediaNotFoundError(f"Audiobook with id {prov_audiobook_id} not found") from err
 
     async def get_stream_details(self, item_id: str, media_type: MediaType) -> StreamDetails:
         """Get streamdetails for a audiobook based of asin."""
