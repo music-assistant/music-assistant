@@ -26,8 +26,8 @@ from music_assistant_models.enums import (
 from music_assistant_models.errors import PlayerCommandFailed, PlayerUnavailableError
 from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 from requests.exceptions import RequestException
+from soco import SoCo, events_asyncio, zonegroupstate
 from soco import config as soco_config
-from soco import events_asyncio, zonegroupstate
 from soco.discovery import discover, scan_network
 
 from music_assistant.constants import (
@@ -47,7 +47,6 @@ from .player import SonosPlayer
 if TYPE_CHECKING:
     from music_assistant_models.config_entries import ProviderConfig
     from music_assistant_models.provider import ProviderManifest
-    from soco.core import SoCo
 
     from music_assistant.mass import MusicAssistant
     from music_assistant.models import ProviderInstanceType
@@ -62,6 +61,7 @@ PLAYER_FEATURES = {
 
 CONF_NETWORK_SCAN = "network_scan"
 CONF_HOUSEHOLD_ID = "household_id"
+CONF_IPS = "ips"
 SUBSCRIPTION_TIMEOUT = 1200
 ZGS_SUBSCRIPTION_TIMEOUT = 2
 
@@ -118,6 +118,21 @@ async def get_config_entries(
             default_value=household_ids[0] if household_ids else None,
             description="Household ID for the Sonos (S1) system. Will be auto detected if empty.",
             category="advanced",
+            required=False,
+        ),
+        ConfigEntry(
+            key=CONF_IPS,
+            type=ConfigEntryType.STRING,
+            label="IP addresses (ADVANCED, NOT SUPPORTED)",
+            description="Additional fixed IP addresses for speakers. "
+            "Should be formatted as a comma separated list of IP addresses "
+            "(e.g. '10.0.0.42, 10.0.0.45').\n"
+            "Invalid addresses may result in the Sonos provider "
+            "becoming unresponsive and server crashes.\n"
+            "Bidirectional unicast communication to and between all IPs is required.\n"
+            "NOT SUPPORTED, USE ON YOU'RE OWN RISK",
+            category="advanced",
+            default_value=None,
             required=False,
         ),
     )
@@ -362,6 +377,25 @@ class SonosPlayerProvider(PlayerProvider):
 
     async def discover_players(self) -> None:
         """Discover Sonos players on the network."""
+        manual_ip_config: str | None
+        if (manual_ip_config := self.config.get_value(CONF_IPS)) is not None:  # type: ignore[assignment]
+            ips = set(map(str.strip, manual_ip_config.split(",")))
+            for ip in ips:
+                try:
+                    player = SoCo(ip)
+                    self._add_player(player)
+                except RequestException as err:
+                    # player is offline
+                    self.logger.debug("Failed to add SonosPlayer %s: %s", player, err)
+                except Exception as err:
+                    self.logger.warning(
+                        "Failed to add SonosPlayer %s: %s",
+                        player,
+                        err,
+                        exc_info=err if self.logger.isEnabledFor(10) else None,
+                    )
+            return
+
         if self._discovery_running:
             return
 
