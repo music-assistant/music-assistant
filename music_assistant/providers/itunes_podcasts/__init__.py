@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -216,25 +217,23 @@ class ITunesPodcastsProvider(MusicProvider):
             instance_id=self.instance_id,
         )
 
-    async def get_podcast_episodes(self, prov_podcast_id: str) -> list[PodcastEpisode]:
+    async def get_podcast_episodes(
+        self, prov_podcast_id: str
+    ) -> AsyncGenerator[PodcastEpisode, None]:
         """Get podcast episodes."""
-        episode_list = []
         podcast = await self._get_parsed_podcast(prov_podcast_id)
         podcast_cover = podcast.get("cover_url")
         episodes = podcast.get("episodes", [])
         for cnt, episode in enumerate(episodes):
-            episode_list.append(
-                parse_podcast_episode(
-                    episode=episode,
-                    prov_podcast_id=prov_podcast_id,
-                    episode_cnt=cnt,
-                    podcast_cover=podcast_cover,
-                    domain=self.domain,
-                    lookup_key=self.lookup_key,
-                    instance_id=self.instance_id,
-                )
+            yield parse_podcast_episode(
+                episode=episode,
+                prov_podcast_id=prov_podcast_id,
+                episode_cnt=cnt,
+                podcast_cover=podcast_cover,
+                domain=self.domain,
+                lookup_key=self.lookup_key,
+                instance_id=self.instance_id,
             )
-        return episode_list
 
     async def get_podcast_episode(self, prov_episode_id: str) -> PodcastEpisode:
         """Get single podcast episode."""
