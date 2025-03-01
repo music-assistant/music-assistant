@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Final, cast
 
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueType
 from music_assistant_models.enums import (
-    CacheCategory,
     ConfigEntryType,
     EventType,
     MediaType,
@@ -40,6 +39,7 @@ from music_assistant_models.provider import SyncTask
 from music_assistant_models.unique_list import UniqueList
 
 from music_assistant.constants import (
+    CACHE_CATEGORY_MUSIC_SEARCH,
     DB_TABLE_ALBUM_ARTISTS,
     DB_TABLE_ALBUM_TRACKS,
     DB_TABLE_ALBUMS,
@@ -369,7 +369,7 @@ class MusicController(CoreController):
 
         # prefer cache items (if any)
         media_types_str = ",".join(media_types)
-        cache_category = CacheCategory.MUSIC_SEARCH
+        cache_category = CACHE_CATEGORY_MUSIC_SEARCH
         cache_base_key = prov.lookup_key
         cache_key = f"{search_query}.{limit}.{media_types_str}"
 

@@ -12,7 +12,6 @@ import aiofiles
 import shortuuid
 from music_assistant_models.config_entries import ConfigEntry
 from music_assistant_models.enums import (
-    CacheCategory,
     ConfigEntryType,
     ContentType,
     ImageType,
@@ -39,7 +38,7 @@ from music_assistant_models.media_items import (
 )
 from music_assistant_models.streamdetails import StreamDetails
 
-from music_assistant.constants import MASS_LOGO, VARIOUS_ARTISTS_FANART
+from music_assistant.constants import CACHE_CATEGORY_MEDIA_INFO, MASS_LOGO, VARIOUS_ARTISTS_FANART
 from music_assistant.helpers.tags import AudioTags, async_parse_tags
 from music_assistant.helpers.uri import parse_uri
 from music_assistant.models.music_provider import MusicProvider
@@ -534,7 +533,7 @@ class BuiltinProvider(MusicProvider):
 
     async def _get_media_info(self, url: str, force_refresh: bool = False) -> AudioTags:
         """Retrieve mediainfo for url."""
-        cache_category = CacheCategory.MEDIA_INFO
+        cache_category = CACHE_CATEGORY_MEDIA_INFO
         cache_base_key = self.lookup_key
         # do we have some cached info for this url ?
         cached_info = await self.mass.cache.get(

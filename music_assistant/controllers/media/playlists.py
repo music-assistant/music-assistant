@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from music_assistant_models.enums import CacheCategory, MediaType, ProviderFeature
+from music_assistant_models.enums import MediaType, ProviderFeature
 from music_assistant_models.errors import (
     InvalidDataError,
     MediaNotFoundError,
@@ -14,7 +14,11 @@ from music_assistant_models.errors import (
 )
 from music_assistant_models.media_items import Playlist, Track
 
-from music_assistant.constants import DB_TABLE_PLAYLISTS
+from music_assistant.constants import (
+    CACHE_CATEGORY_MUSIC_PLAYLIST_TRACKS,
+    CACHE_CATEGORY_MUSIC_PROVIDER_ITEM,
+    DB_TABLE_PLAYLISTS,
+)
 from music_assistant.helpers.compare import create_safe_string
 from music_assistant.helpers.json import serialize_to_json
 from music_assistant.helpers.uri import create_uri, parse_uri
@@ -375,7 +379,7 @@ class PlaylistController(MediaControllerBase[Playlist]):
         if not provider:
             return []
         # prefer cache items (if any)
-        cache_category = CacheCategory.MUSIC_PLAYLIST_TRACKS
+        cache_category = CACHE_CATEGORY_MUSIC_PLAYLIST_TRACKS
         cache_base_key = provider.lookup_key
         cache_key = f"{item_id}.{page}"
         if (
@@ -410,7 +414,7 @@ class PlaylistController(MediaControllerBase[Playlist]):
                 await self.mass.cache.set(
                     f"track.{item_id}",
                     item.to_dict(),
-                    category=CacheCategory.MUSIC_PROVIDER_ITEM,
+                    category=CACHE_CATEGORY_MUSIC_PROVIDER_ITEM,
                     base_key=provider.lookup_key,
                 )
         return items

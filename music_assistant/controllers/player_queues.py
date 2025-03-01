@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueOption, ConfigValueType
 from music_assistant_models.enums import (
-    CacheCategory,
     ConfigEntryType,
     ContentType,
     EventType,
@@ -56,6 +55,7 @@ from music_assistant_models.player_queue import PlayerQueue
 from music_assistant_models.queue_item import QueueItem
 
 from music_assistant.constants import (
+    CACHE_CATEGORY_PLAYER_QUEUE_STATE,
     CONF_CROSSFADE,
     CONF_FLOW_MODE,
     MASS_LOGO_ONLINE,
@@ -788,21 +788,18 @@ class PlayerQueuesController(CoreController):
         ):
             seek_position = max(0, int((resume_position_ms - 500) / 1000))
 
-        # load item (which also fetches the streamdetails)
-        # do this here to catch unavailable items early
-        next_index = self._get_next_index(queue_id, index, allow_repeat=False)
-        await self._load_item(
-            queue_item,
-            next_index,
-            is_start=True,
-            seek_position=seek_position,
-            fade_in=fade_in,
-        )
-
         # send play_media request to player
         # NOTE that we debounce this a bit to account for someone hitting the next button
         # like a madman. This will prevent the player from being overloaded with requests.
-        async def play_media():
+        async def play_media() -> None:
+            next_index = self._get_next_index(queue_id, index, allow_repeat=False)
+            await self._load_item(
+                queue_item,
+                next_index,
+                is_start=True,
+                seek_position=seek_position,
+                fade_in=fade_in,
+            )
             await self.mass.players.play_media(
                 player_id=queue_id,
                 media=await self.player_media_from_queue_item(queue_item, queue.flow_mode),
@@ -813,7 +810,7 @@ class PlayerQueuesController(CoreController):
         # we set a flag to notify the update logic that we're transitioning to a new track
         self._transitioning_players.add(queue_id)
         self.mass.call_later(
-            1.5 if debounce else 0.1,
+            1 if debounce else 0,
             play_media,
             task_id=f"play_media_{queue_id}",
         )
@@ -872,14 +869,14 @@ class PlayerQueuesController(CoreController):
         queue = None
         # try to restore previous state
         if prev_state := await self.mass.cache.get(
-            "state", category=CacheCategory.PLAYER_QUEUE_STATE, base_key=queue_id
+            "state", category=CACHE_CATEGORY_PLAYER_QUEUE_STATE, base_key=queue_id
         ):
             try:
                 queue = PlayerQueue.from_cache(prev_state)
                 prev_items = await self.mass.cache.get(
                     "items",
                     default=[],
-                    category=CacheCategory.PLAYER_QUEUE_STATE,
+                    category=CACHE_CATEGORY_PLAYER_QUEUE_STATE,
                     base_key=queue_id,
                 )
                 queue_items = [QueueItem.from_cache(x) for x in prev_items]
@@ -1125,7 +1122,6 @@ class PlayerQueuesController(CoreController):
         if (
             insert_at_index == (index_in_buffer + 1)
             and queue.state != PlayerState.IDLE
-            and not queue.flow_mode
             and (current_item_in_buffer := self.get_item(queue_id, index_in_buffer))
         ):
             task_id = f"enqueue_next_item_{queue_id}"
@@ -1166,7 +1162,7 @@ class PlayerQueuesController(CoreController):
                 self.mass.cache.set(
                     "items",
                     [x.to_cache() for x in self._queue_items[queue_id]],
-                    category=CacheCategory.PLAYER_QUEUE_STATE,
+                    category=CACHE_CATEGORY_PLAYER_QUEUE_STATE,
                     base_key=queue_id,
                 )
             )
@@ -1177,7 +1173,7 @@ class PlayerQueuesController(CoreController):
             self.mass.cache.set(
                 "state",
                 queue.to_cache(),
-                category=CacheCategory.PLAYER_QUEUE_STATE,
+                category=CACHE_CATEGORY_PLAYER_QUEUE_STATE,
                 base_key=queue_id,
             )
         )
@@ -1341,7 +1337,10 @@ class PlayerQueuesController(CoreController):
             "Fetching episode(s) and resume point to play for Podcast %s",
             podcast.name,
         )
-        all_episodes = await self.mass.music.podcasts.episodes(podcast.item_id, podcast.provider)
+        all_episodes = [
+            x async for x in self.mass.music.podcasts.episodes(podcast.item_id, podcast.provider)
+        ]
+        all_episodes.sort(key=lambda x: x.position)
         # if a episode was provided, a user explicitly selected a episode to play
         # so we need to find the index of the episode in the list
         if isinstance(episode, PodcastEpisode):
@@ -1439,10 +1438,11 @@ class PlayerQueuesController(CoreController):
             next_item = await self.load_next_item(queue_id, current_item_id)
         except QueueEmpty:
             return
-        await self.mass.players.enqueue_next_media(
-            player_id=queue_id,
-            media=await self.player_media_from_queue_item(next_item, False),
-        )
+        if not self._queues[queue_id].flow_mode:
+            await self.mass.players.enqueue_next_media(
+                player_id=queue_id,
+                media=await self.player_media_from_queue_item(next_item, False),
+            )
         self.logger.debug(
             "Enqueued next track %s on queue %s",
             next_item.name,

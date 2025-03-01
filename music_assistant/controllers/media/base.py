@@ -9,13 +9,7 @@ from collections.abc import Iterable
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from music_assistant_models.enums import (
-    CacheCategory,
-    EventType,
-    ExternalID,
-    MediaType,
-    ProviderFeature,
-)
+from music_assistant_models.enums import EventType, ExternalID, MediaType, ProviderFeature
 from music_assistant_models.errors import MediaNotFoundError, ProviderUnavailableError
 from music_assistant_models.media_items import (
     Album,
@@ -26,7 +20,13 @@ from music_assistant_models.media_items import (
     Track,
 )
 
-from music_assistant.constants import DB_TABLE_PLAYLOG, DB_TABLE_PROVIDER_MAPPINGS, MASS_LOGGER_NAME
+from music_assistant.constants import (
+    CACHE_CATEGORY_MUSIC_PROVIDER_ITEM,
+    CACHE_CATEGORY_MUSIC_SEARCH,
+    DB_TABLE_PLAYLOG,
+    DB_TABLE_PROVIDER_MAPPINGS,
+    MASS_LOGGER_NAME,
+)
 from music_assistant.helpers.compare import compare_media_item, create_safe_string
 from music_assistant.helpers.json import json_loads, serialize_to_json
 
@@ -317,7 +317,7 @@ class MediaControllerBase(Generic[ItemCls], metaclass=ABCMeta):
             return []
 
         # prefer cache items (if any)
-        cache_category = CacheCategory.MUSIC_SEARCH
+        cache_category = CACHE_CATEGORY_MUSIC_SEARCH
         cache_base_key = prov.lookup_key
         cache_key = f"{search_query}.{limit}.{self.media_type.value}"
         if (
@@ -536,7 +536,7 @@ class MediaControllerBase(Generic[ItemCls], metaclass=ABCMeta):
         if not (provider := self.mass.get_provider(provider_instance_id_or_domain)):
             raise ProviderUnavailableError(f"{provider_instance_id_or_domain} is not available")
 
-        cache_category = CacheCategory.MUSIC_PROVIDER_ITEM
+        cache_category = CACHE_CATEGORY_MUSIC_PROVIDER_ITEM
         cache_base_key = provider.lookup_key
         cache_key = f"{self.media_type.value}.{item_id}"
         if not force_refresh and (

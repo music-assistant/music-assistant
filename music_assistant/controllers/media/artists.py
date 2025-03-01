@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 from typing import TYPE_CHECKING, Any
 
-from music_assistant_models.enums import AlbumType, CacheCategory, MediaType, ProviderFeature
+from music_assistant_models.enums import AlbumType, MediaType, ProviderFeature
 from music_assistant_models.errors import (
     MediaNotFoundError,
     MusicAssistantError,
@@ -15,6 +15,9 @@ from music_assistant_models.errors import (
 from music_assistant_models.media_items import Album, Artist, ItemMapping, Track, UniqueList
 
 from music_assistant.constants import (
+    CACHE_CATEGORY_MUSIC_ARTIST_ALBUMS,
+    CACHE_CATEGORY_MUSIC_ARTIST_TRACKS,
+    CACHE_CATEGORY_MUSIC_PROVIDER_ITEM,
     DB_TABLE_ALBUM_ARTISTS,
     DB_TABLE_ARTISTS,
     DB_TABLE_TRACK_ARTISTS,
@@ -208,7 +211,7 @@ class ArtistsController(MediaControllerBase[Artist]):
         if prov is None:
             return []
         # prefer cache items (if any) - for streaming providers
-        cache_category = CacheCategory.MUSIC_ARTIST_TRACKS
+        cache_category = CACHE_CATEGORY_MUSIC_ARTIST_TRACKS
         cache_base_key = prov.lookup_key
         cache_key = item_id
         if (
@@ -231,7 +234,7 @@ class ArtistsController(MediaControllerBase[Artist]):
                     await self.mass.cache.set(
                         f"track.{item_id}",
                         item.to_dict(),
-                        category=CacheCategory.MUSIC_PROVIDER_ITEM,
+                        category=CACHE_CATEGORY_MUSIC_PROVIDER_ITEM,
                         base_key=prov.lookup_key,
                     )
         else:
@@ -281,7 +284,7 @@ class ArtistsController(MediaControllerBase[Artist]):
         if prov is None:
             return []
         # prefer cache items (if any)
-        cache_category = CacheCategory.MUSIC_ARTIST_ALBUMS
+        cache_category = CACHE_CATEGORY_MUSIC_ARTIST_ALBUMS
         cache_base_key = prov.lookup_key
         cache_key = item_id
         if (

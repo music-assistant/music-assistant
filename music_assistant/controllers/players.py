@@ -39,6 +39,8 @@ from music_assistant_models.player import Player, PlayerMedia
 from music_assistant_models.player_control import PlayerControl  # noqa: TC002
 
 from music_assistant.constants import (
+    CACHE_CATEGORY_PLAYERS,
+    CACHE_KEY_PLAYER_POWER,
     CONF_AUTO_PLAY,
     CONF_ENTRY_ANNOUNCE_VOLUME,
     CONF_ENTRY_ANNOUNCE_VOLUME_MAX,
@@ -397,7 +399,11 @@ class PlayerController(CoreController):
             async with self._player_throttlers[player_id]:
                 await player_provider.cmd_power(player_id, powered)
         elif player.power_control == PLAYER_CONTROL_FAKE:
-            # user wants to use fake power control - so we only (optimistically) update the state
+            # user wants to use fake power control - so we (optimistically) update the state
+            # and store the state in the cache
+            await self.mass.cache.set(
+                player_id, powered, category=CACHE_CATEGORY_PLAYERS, base_key=CACHE_KEY_PLAYER_POWER
+            )
             # short sleep: allow the stop command to process and prevent race conditions
             await asyncio.sleep(0.2)
         else:
@@ -959,7 +965,7 @@ class PlayerController(CoreController):
 
         # ensure initial player state gets populated with values from config
         player_config = await self.mass.config.get_player_config(player_id)
-        self._set_player_state_from_config(player, player_config)
+        await self._set_player_state_from_config(player, player_config)
 
         self.logger.info(
             "Player registered: %s/%s",
@@ -1019,7 +1025,7 @@ class PlayerController(CoreController):
         if player.power_control == PLAYER_CONTROL_NONE:
             player.powered = None
         elif player.power_control == PLAYER_CONTROL_FAKE:
-            player.powered = True if player.powered is None else player.powered
+            player.powered = False if player.powered is None else player.powered
         elif player.power_control != PLAYER_CONTROL_NATIVE:
             if player_control := self._controls.get(player.power_control):
                 player.powered = player_control.power_state
@@ -1318,7 +1324,7 @@ class PlayerController(CoreController):
         if not (player := self.get(config.player_id)):
             return
         # ensure player state gets updated with any updated config
-        self._set_player_state_from_config(player, config)
+        await self._set_player_state_from_config(player, config)
         resume_queue: PlayerQueue | None = self.mass.player_queues.get(player.active_source)
         # signal player provider that the config changed
         if player_provider := self.mass.get_provider(config.provider):
@@ -1463,16 +1469,23 @@ class PlayerController(CoreController):
             if player.player_id in group_player.group_childs:
                 group_player.group_childs.remove(player.player_id)
 
-    def _set_player_state_from_config(self, player: Player, config: PlayerConfig) -> None:
+    async def _set_player_state_from_config(self, player: Player, config: PlayerConfig) -> None:
         """Set player state from config."""
         player.display_name = config.name or player.name or config.default_name or player.player_id
         player.hidden = config.get_value(CONF_HIDE_PLAYER)
         player.icon = config.get_value(CONF_ENTRY_PLAYER_ICON.key)
         player.power_control = config.get_value(CONF_POWER_CONTROL)
+        if player.power_control == PLAYER_CONTROL_FAKE:
+            player.powered = await self.mass.cache.get(
+                player.player_id,
+                default=False,
+                category=CACHE_CATEGORY_PLAYERS,
+                base_key=CACHE_KEY_PLAYER_POWER,
+            )
         player.volume_control = config.get_value(CONF_VOLUME_CONTROL)
         player.mute_control = config.get_value(CONF_MUTE_CONTROL)
 
-    async def _play_announcement(
+    async def _play_announcement(  # noqa: PLR0915
         self,
         player: Player,
         announcement: PlayerMedia,
@@ -1539,7 +1552,9 @@ class PlayerController(CoreController):
                         volume_player.display_name,
                     )
                     tg.create_task(self.cmd_stop(volume_player.player_id))
-                prev_volume = volume_player.volume_level
+                if volume_player.volume_control == PLAYER_CONTROL_NONE:
+                    continue
+                prev_volume = volume_player.volume_level or 0
                 announcement_volume = self.get_announcement_volume(volume_player_id, volume_level)
                 temp_volume = announcement_volume or player.volume_level
                 if temp_volume != prev_volume:
@@ -1616,7 +1631,6 @@ class PlayerController(CoreController):
                     except PlayerUnavailableError:
                         player.available = False
                         player.state = PlayerState.IDLE
-                        player.powered = None
                     except Exception as err:
                         self.logger.warning(
                             "Error while requesting latest state from player %s: %s",
@@ -1635,7 +1649,9 @@ class PlayerController(CoreController):
         """Handle playback/select of given plugin source on player."""
         plugin_source = plugin_prov.get_source()
         player.active_source = plugin_source.id
-        stream_url = self.mass.streams.get_plugin_source_url(plugin_source.id, player.player_id)
+        stream_url = await self.mass.streams.get_plugin_source_url(
+            plugin_source.id, player.player_id
+        )
         await self.play_media(
             player_id=player.player_id,
             media=PlayerMedia(

@@ -329,6 +329,16 @@ CONF_ENTRY_OUTPUT_CODEC_ENFORCE_FLAC = ConfigEntry.from_dict(
 )
 
 
+def create_output_codec_config_entry(
+    hidden: bool = False, default_value: str = "flac"
+) -> ConfigEntry:
+    """Create output codec config entry based on player specific helpers."""
+    conf_entry = ConfigEntry.from_dict(CONF_ENTRY_OUTPUT_CODEC.to_dict())
+    conf_entry.hidden = hidden
+    conf_entry.default_value = default_value
+    return conf_entry
+
+
 CONF_ENTRY_SYNC_ADJUST = ConfigEntry(
     key=CONF_SYNC_ADJUST,
     type=ConfigEntryType.INTEGER,
@@ -532,6 +542,11 @@ def create_sample_rates_config_entry(
     options: list[ConfigValueOption] = []
     default_value: list[str] = []
 
+    if not supported_sample_rates and max_sample_rate is None:
+        supported_sample_rates = [44100]
+    if not supported_bit_depths and max_bit_depth is None:
+        supported_bit_depths = [16]
+
     for option in CONF_ENTRY_SAMPLE_RATES.options:
         option_value = cast(str, option.value)
         sample_rate_str, bit_depth_str = option_value.split(MULTI_VALUE_SPLITTER, 1)
@@ -592,3 +607,21 @@ DEFAULT_PCM_FORMAT = AudioFormat(
     bit_depth=32,
     channels=2,
 )
+
+
+# CACHE categories
+
+CACHE_CATEGORY_DEFAULT: Final[int] = 0
+CACHE_CATEGORY_MUSIC_SEARCH: Final[int] = 1
+CACHE_CATEGORY_MUSIC_ALBUM_TRACKS: Final[int] = 2
+CACHE_CATEGORY_MUSIC_ARTIST_TRACKS: Final[int] = 3
+CACHE_CATEGORY_MUSIC_ARTIST_ALBUMS: Final[int] = 4
+CACHE_CATEGORY_MUSIC_PLAYLIST_TRACKS: Final[int] = 5
+CACHE_CATEGORY_MUSIC_PROVIDER_ITEM: Final[int] = 6
+CACHE_CATEGORY_PLAYER_QUEUE_STATE: Final[int] = 7
+CACHE_CATEGORY_MEDIA_INFO: Final[int] = 8
+CACHE_CATEGORY_LIBRARY_ITEMS: Final[int] = 9
+CACHE_CATEGORY_PLAYERS: Final[int] = 10
+
+# CACHE base keys
+CACHE_KEY_PLAYER_POWER: Final[str] = "player_power"
