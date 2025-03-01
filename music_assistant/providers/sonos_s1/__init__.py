@@ -47,7 +47,6 @@ from .player import SonosPlayer
 if TYPE_CHECKING:
     from music_assistant_models.config_entries import ProviderConfig
     from music_assistant_models.provider import ProviderManifest
-    from soco.core import SoCo
 
     from music_assistant.mass import MusicAssistant
     from music_assistant.models import ProviderInstanceType
@@ -377,11 +376,10 @@ class SonosPlayerProvider(PlayerProvider):
             raise PlayerUnavailableError from err
 
     async def discover_players(self) -> None:
+        """Discover Sonos players on the network."""
         manual_ip_config: str | None
-        """Use static IPs when provided."""
-        if (manual_ip_config := self.config.get_value(CONF_IPS)) is not None:
-            ipsAsArray = manual_ip_config.split(",")
-            ips = set(map(str.strip, ipsAsArray))
+        if (manual_ip_config := self.config.get_value(CONF_IPS)) is not None:  # type: ignore[assignment]
+            ips = set(map(str.strip, manual_ip_config.split(",")))
             for ip in ips:
                 try:
                     player = SoCo(ip)
@@ -398,7 +396,6 @@ class SonosPlayerProvider(PlayerProvider):
                     )
             return
 
-        """Discover Sonos players on the network."""
         if self._discovery_running:
             return
 
