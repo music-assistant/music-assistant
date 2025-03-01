@@ -26,8 +26,8 @@ from music_assistant_models.enums import (
 from music_assistant_models.errors import PlayerCommandFailed, PlayerUnavailableError
 from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 from requests.exceptions import RequestException
+from soco import SoCo, events_asyncio, zonegroupstate
 from soco import config as soco_config
-from soco import events_asyncio, zonegroupstate
 from soco.discovery import discover, scan_network
 
 from music_assistant.constants import (
@@ -377,6 +377,25 @@ class SonosPlayerProvider(PlayerProvider):
             raise PlayerUnavailableError from err
 
     async def discover_players(self) -> None:
+        """Use static IPs when provided."""
+        if manual_ip_config := self.config.get_value(CONF_IPS):
+            ips = set(map(str.strip, manual_ip_config.split(",")))
+            for ip in ips:
+                try:
+                    player = SoCo(ip)
+                    self._add_player(player)
+                except RequestException as err:
+                    # player is offline
+                    self.logger.debug("Failed to add SonosPlayer %s: %s", player, err)
+                except Exception as err:
+                    self.logger.warning(
+                        "Failed to add SonosPlayer %s: %s",
+                        player,
+                        err,
+                        exc_info=err if self.logger.isEnabledFor(10) else None,
+                    )
+            return
+
         """Discover Sonos players on the network."""
         if self._discovery_running:
             return
@@ -481,20 +500,11 @@ async def discover_household_ids(mass: MusicAssistant, prefer_s1: bool = True) -
     household_ids: list[str] = []
 
     def get_all_sonos_ips() -> set[SoCo]:
-        ips: set[SoCo] | None
-        manual_ip_config: str | None
-        if (manual_ip_config := self.config.get_value(CONF_IPS)) is not None:
-            ips = set(map(str.strip, manual_ip_config.split(',')))
-        else
-            """Run full network discovery and return IP's of all devices found on the network."""
-            discovered_zones: set[SoCo] | None
-            if discovered_zones := scan_network(multi_household=True):
-                ips = {zone.ip_address for zone in discovered_zones}
-            else
-                ips = set()
-        
-        return ips
-        
+        """Run full network discovery and return IP's of all devices found on the network."""
+        discovered_zones: set[SoCo] | None
+        if discovered_zones := scan_network(multi_household=True):
+            return {zone.ip_address for zone in discovered_zones}
+        return set()
 
     all_sonos_ips = await asyncio.to_thread(get_all_sonos_ips)
     for ip_address in all_sonos_ips:
