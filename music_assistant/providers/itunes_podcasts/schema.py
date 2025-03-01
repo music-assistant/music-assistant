@@ -24,6 +24,7 @@ class _BaseModel(DataClassJSONMixin):
 class PodcastSearchResult(_BaseModel):
     """PodcastSearchResult."""
 
+    collection_id: int | None = field(metadata=field_options(alias="collectionId"), default=None)
     kind: str | None = None
     artist_name: str | None = field(metadata=field_options(alias="artistName"), default=None)
     collection_name: str | None = field(
