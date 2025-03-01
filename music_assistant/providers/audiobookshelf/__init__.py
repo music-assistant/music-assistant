@@ -1097,7 +1097,7 @@ class Audiobookshelf(MusicProvider):
             # timestamp, we do not update again.
             if not self.progress_guard.guard_ok_abs(progress):
                 continue
-            if progress.current_time and not progress.current_time >= 30:
+            if progress.current_time is not None and not progress.current_time >= 30:
                 # same as mass default, only > 30s
                 continue
             if progress.library_item_id not in known_ids:
