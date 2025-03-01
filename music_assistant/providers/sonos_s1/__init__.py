@@ -377,9 +377,11 @@ class SonosPlayerProvider(PlayerProvider):
             raise PlayerUnavailableError from err
 
     async def discover_players(self) -> None:
+        manual_ip_config: str | None
         """Use static IPs when provided."""
-        if manual_ip_config := self.config.get_value(CONF_IPS):
-            ips = set(map(str.strip, manual_ip_config.split(",")))
+        if (manual_ip_config := self.config.get_value(CONF_IPS)) is not None:
+            ipsAsArray = manual_ip_config.split(",")
+            ips = set(map(str.strip, ipsAsArray))
             for ip in ips:
                 try:
                     player = SoCo(ip)
