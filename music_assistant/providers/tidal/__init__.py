@@ -46,6 +46,7 @@ from music_assistant_models.media_items import (
 )
 from music_assistant_models.streamdetails import StreamDetails
 
+from music_assistant.constants import CACHE_CATEGORY_DEFAULT
 from music_assistant.helpers.throttle_retry import (
     ThrottlerManager,
     throttle_with_retries,
@@ -127,13 +128,9 @@ async def get_config_entries(
     assert values is not None
 
     if action == CONF_ACTION_START_PKCE_LOGIN:
-        async with ManualAuthenticationHelper(
-            mass, cast(str, values["session_id"])
-        ) as auth_helper:
+        async with ManualAuthenticationHelper(mass, cast(str, values["session_id"])) as auth_helper:
             quality = str(values.get(CONF_QUALITY))
-            base64_session = await TidalAuthManager.generate_auth_url(
-                auth_helper, quality
-            )
+            base64_session = await TidalAuthManager.generate_auth_url(auth_helper, quality)
             values[CONF_TEMP_SESSION] = base64_session
             # Tidal is using the ManualAuthenticationHelper just to send the user to an URL
             # there is no actual oauth callback happening, instead the user is redirected
@@ -176,12 +173,8 @@ async def get_config_entries(
                 label=CONF_QUALITY,
                 required=True,
                 hidden=True,
-                value=cast(
-                    str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value
-                ),
-                default_value=cast(
-                    str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value
-                ),
+                value=cast(str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value),
+                default_value=cast(str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value),
             ),
         )
     else:
@@ -287,9 +280,7 @@ class TidalProvider(MusicProvider):
 
     throttler = ThrottlerManager(rate_limit=1, period=2)
 
-    def __init__(
-        self, mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig
-    ):
+    def __init__(self, mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig):
         """Initialize Tidal provider."""
         super().__init__(mass, manifest, config)
         self.auth = TidalAuthManager(
@@ -340,9 +331,7 @@ class TidalProvider(MusicProvider):
         }
 
     @staticmethod
-    def prepare_api_request(
-        method: Callable[..., Awaitable[T]]
-    ) -> Callable[..., Awaitable[T]]:
+    def prepare_api_request(method: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         """Prepare API requests with authentication and common parameters."""
 
         @functools.wraps(method)
@@ -413,18 +402,14 @@ class TidalProvider(MusicProvider):
             headers["Content-Type"] = "application/x-www-form-urlencoded"
             kwargs["headers"] = headers
             # Use data parameter for form-encoded data
-            async with self.mass.http_session.post(
-                url, data=data, **kwargs
-            ) as response:
+            async with self.mass.http_session.post(url, data=data, **kwargs) as response:
                 return cast(
                     dict[str, Any],
                     await self._handle_response(response, return_etag=False),
                 )
         else:
             # Use json parameter for JSON data (default)
-            async with self.mass.http_session.post(
-                url, json=data, **kwargs
-            ) as response:
+            async with self.mass.http_session.post(url, json=data, **kwargs) as response:
                 return cast(
                     dict[str, Any],
                     await self._handle_response(response, return_etag=False),
@@ -440,9 +425,7 @@ class TidalProvider(MusicProvider):
 
         # For DELETE requests with a body, we need to use json parameter
         async with self.mass.http_session.delete(url, json=data, **kwargs) as response:
-            return cast(
-                dict[str, Any], await self._handle_response(response, return_etag=False)
-            )
+            return cast(dict[str, Any], await self._handle_response(response, return_etag=False))
 
     async def _handle_response(
         self, response: ClientResponse, return_etag: bool = False
@@ -458,9 +441,7 @@ class TidalProvider(MusicProvider):
 
         if response.status == 429:
             retry_after = int(response.headers.get("Retry-After", 30))
-            raise ResourceTemporarilyUnavailable(
-                "Rate limit reached", backoff_time=retry_after
-            )
+            raise ResourceTemporarilyUnavailable("Rate limit reached", backoff_time=retry_after)
 
         if response.status == 412:
             text = await response.text()
@@ -551,26 +532,20 @@ class TidalProvider(MusicProvider):
     @staticmethod
     def handle_item_errors(
         item_type: str,
-    ) -> Callable[
-        [Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]
-    ]:
+    ) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
         """Handle standard error patterns in item getters."""
 
         def decorator(
             method: Callable[..., Coroutine[Any, Any, T]],
         ) -> Callable[..., Coroutine[Any, Any, T]]:
             @functools.wraps(method)
-            async def wrapper(
-                self: TidalProvider, item_id: str, *args: Any, **kwargs: Any
-            ) -> T:
+            async def wrapper(self: TidalProvider, item_id: str, *args: Any, **kwargs: Any) -> T:
                 try:
                     return await method(self, item_id, *args, **kwargs)
                 except ResourceTemporarilyUnavailable:
                     raise
                 except Exception as err:
-                    raise MediaNotFoundError(
-                        f"{item_type} {item_id} not found"
-                    ) from err
+                    raise MediaNotFoundError(f"{item_type} {item_id} not found") from err
 
             return wrapper
 
@@ -592,8 +567,7 @@ class TidalProvider(MusicProvider):
         media_types = [
             x
             for x in media_types
-            if x
-            in (MediaType.ARTIST, MediaType.ALBUM, MediaType.TRACK, MediaType.PLAYLIST)
+            if x in (MediaType.ARTIST, MediaType.ALBUM, MediaType.TRACK, MediaType.PLAYLIST)
         ]
         if not media_types:
             return parsed_results
@@ -620,8 +594,7 @@ class TidalProvider(MusicProvider):
             ]
         if results["playlists"]:
             parsed_results.playlists = [
-                self._parse_playlist(playlist)
-                for playlist in results["playlists"]["items"]
+                self._parse_playlist(playlist) for playlist in results["playlists"]["items"]
             ]
         if results["tracks"]:
             parsed_results.tracks = [
@@ -671,10 +644,7 @@ class TidalProvider(MusicProvider):
             # Use _get_data directly instead of TidalClient
             api_result = await self._get_data(f"albums/{prov_album_id}/tracks")
             album_tracks = self._extract_data(api_result)
-            return [
-                self._parse_track(track_obj)
-                for track_obj in album_tracks.get("items", [])
-            ]
+            return [self._parse_track(track_obj) for track_obj in album_tracks.get("items", [])]
         except MediaNotFoundError as err:
             raise MediaNotFoundError(f"Album {prov_album_id} not found") from err
 
@@ -683,10 +653,7 @@ class TidalProvider(MusicProvider):
         try:
             api_result = await self._get_data(f"artists/{prov_artist_id}/albums")
             artist_albums = self._extract_data(api_result)
-            return [
-                self._parse_album(album_obj)
-                for album_obj in artist_albums.get("items", [])
-            ]
+            return [self._parse_album(album_obj) for album_obj in artist_albums.get("items", [])]
         except MediaNotFoundError as err:
             raise MediaNotFoundError(f"Artist {prov_artist_id} not found") from err
 
@@ -698,15 +665,12 @@ class TidalProvider(MusicProvider):
             )
             artist_top_tracks = self._extract_data(api_result)
             return [
-                self._parse_track(track_obj)
-                for track_obj in artist_top_tracks.get("items", [])
+                self._parse_track(track_obj) for track_obj in artist_top_tracks.get("items", [])
             ]
         except MediaNotFoundError as err:
             raise MediaNotFoundError(f"Artist {prov_artist_id} not found") from err
 
-    async def get_playlist_tracks(
-        self, prov_playlist_id: str, page: int = 0
-    ) -> list[Track]:
+    async def get_playlist_tracks(self, prov_playlist_id: str, page: int = 0) -> list[Track]:
         """Get playlist tracks."""
         result: list[Track] = []
         page_size = 200
@@ -722,17 +686,12 @@ class TidalProvider(MusicProvider):
             result.append(track)
         return result
 
-    async def get_similar_tracks(
-        self, prov_track_id: str, limit: int = 25
-    ) -> list[Track]:
+    async def get_similar_tracks(self, prov_track_id: str, limit: int = 25) -> list[Track]:
         """Get similar tracks for given track id."""
         try:
             api_result = await self._get_data(f"tracks/{prov_track_id}/radios")
             similar_tracks = self._extract_data(api_result)
-            return [
-                self._parse_track(track_obj)
-                for track_obj in similar_tracks.get("items", [])
-            ]
+            return [self._parse_track(track_obj) for track_obj in similar_tracks.get("items", [])]
         except MediaNotFoundError as err:
             raise MediaNotFoundError(f"Track {prov_track_id} not found") from err
 
@@ -763,21 +722,13 @@ class TidalProvider(MusicProvider):
         """Remove item from library."""
         try:
             if media_type == MediaType.ARTIST:
-                await self._delete_data(
-                    "favorites/artists", data={"artistId": prov_item_id}
-                )
+                await self._delete_data("favorites/artists", data={"artistId": prov_item_id})
             elif media_type == MediaType.ALBUM:
-                await self._delete_data(
-                    "favorites/albums", data={"albumId": prov_item_id}
-                )
+                await self._delete_data("favorites/albums", data={"albumId": prov_item_id})
             elif media_type == MediaType.TRACK:
-                await self._delete_data(
-                    "favorites/tracks", data={"trackId": prov_item_id}
-                )
+                await self._delete_data("favorites/tracks", data={"trackId": prov_item_id})
             elif media_type == MediaType.PLAYLIST:
-                await self._delete_data(
-                    "favorites/playlists", data={"playlistId": prov_item_id}
-                )
+                await self._delete_data("favorites/playlists", data={"playlistId": prov_item_id})
             else:
                 return False
 
@@ -786,15 +737,11 @@ class TidalProvider(MusicProvider):
             self.logger.error("Failed to remove item from library: %s", err)
             return False
 
-    async def add_playlist_tracks(
-        self, prov_playlist_id: str, prov_track_ids: list[str]
-    ) -> None:
+    async def add_playlist_tracks(self, prov_playlist_id: str, prov_track_ids: list[str]) -> None:
         """Add track(s) to playlist."""
         try:
             # Get playlist details first with ETag
-            api_result = await self._get_data(
-                f"playlists/{prov_playlist_id}", return_etag=True
-            )
+            api_result = await self._get_data(f"playlists/{prov_playlist_id}", return_etag=True)
             playlist_obj, etag = self._extract_data_and_etag(api_result)
 
             # Send using form-encoded data like the synchronous library
@@ -823,9 +770,7 @@ class TidalProvider(MusicProvider):
         """Remove track(s) from playlist."""
         try:
             # Get playlist with ETag first
-            api_result = await self._get_data(
-                f"playlists/{prov_playlist_id}", return_etag=True
-            )
+            api_result = await self._get_data(f"playlists/{prov_playlist_id}", return_etag=True)
             _, etag = self._extract_data_and_etag(api_result)
 
             # Format positions as string in URL path - this is key to how Tidal's API works
@@ -842,9 +787,7 @@ class TidalProvider(MusicProvider):
 
         except Exception as err:
             self.logger.error("Failed to remove tracks from playlist: %s", err)
-            raise ResourceTemporarilyUnavailable(
-                "Failed to remove playlist tracks"
-            ) from err
+            raise ResourceTemporarilyUnavailable("Failed to remove playlist tracks") from err
 
     async def create_playlist(self, name: str) -> Playlist:
         """Create a new playlist on provider with given name."""
@@ -965,9 +908,7 @@ class TidalProvider(MusicProvider):
         playlist_obj = self._extract_data(api_result)
         return self._parse_playlist(playlist_obj)
 
-    def get_item_mapping(
-        self, media_type: MediaType, key: str, name: str
-    ) -> ItemMapping:
+    def get_item_mapping(self, media_type: MediaType, key: str, name: str) -> ItemMapping:
         """Create a generic item mapping."""
         return ItemMapping(
             media_type=media_type,
