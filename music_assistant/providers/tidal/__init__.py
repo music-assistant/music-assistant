@@ -280,6 +280,10 @@ class TidalProvider(MusicProvider):
 
     throttler = ThrottlerManager(rate_limit=1, period=2)
 
+    #
+    # INITIALIZATION & SETUP
+    #
+
     def __init__(self, mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig):
         """Initialize Tidal provider."""
         super().__init__(mass, manifest, config)
@@ -330,6 +334,10 @@ class TidalProvider(MusicProvider):
             ProviderFeature.PLAYLIST_TRACKS_EDIT,
         }
 
+    #
+    # API REQUEST HELPERS & DECORATORS
+    #
+
     @staticmethod
     def prepare_api_request(method: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         """Prepare API requests with authentication and common parameters."""
@@ -366,7 +374,32 @@ class TidalProvider(MusicProvider):
 
         return wrapper
 
-    # API request methods
+    @staticmethod
+    def handle_item_errors(
+        item_type: str,
+    ) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
+        """Handle standard error patterns in item getters."""
+
+        def decorator(
+            method: Callable[..., Coroutine[Any, Any, T]],
+        ) -> Callable[..., Coroutine[Any, Any, T]]:
+            @functools.wraps(method)
+            async def wrapper(self: TidalProvider, item_id: str, *args: Any, **kwargs: Any) -> T:
+                try:
+                    return await method(self, item_id, *args, **kwargs)
+                except ResourceTemporarilyUnavailable:
+                    raise
+                except Exception as err:
+                    raise MediaNotFoundError(f"{item_type} {item_id} not found") from err
+
+            return wrapper
+
+        return decorator
+
+    #
+    # CORE API METHODS
+    #
+
     @throttle_with_retries
     @prepare_api_request
     async def _get_data(
@@ -529,27 +562,9 @@ class TidalProvider(MusicProvider):
             return api_result
         return api_result, None
 
-    @staticmethod
-    def handle_item_errors(
-        item_type: str,
-    ) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
-        """Handle standard error patterns in item getters."""
-
-        def decorator(
-            method: Callable[..., Coroutine[Any, Any, T]],
-        ) -> Callable[..., Coroutine[Any, Any, T]]:
-            @functools.wraps(method)
-            async def wrapper(self: TidalProvider, item_id: str, *args: Any, **kwargs: Any) -> T:
-                try:
-                    return await method(self, item_id, *args, **kwargs)
-                except ResourceTemporarilyUnavailable:
-                    raise
-                except Exception as err:
-                    raise MediaNotFoundError(f"{item_type} {item_id} not found") from err
-
-            return wrapper
-
-        return decorator
+    #
+    # SEARCH & DISCOVERY
+    #
 
     async def search(
         self,
@@ -602,41 +617,55 @@ class TidalProvider(MusicProvider):
             ]
         return parsed_results
 
-    async def get_library_artists(self) -> AsyncGenerator[Artist, None]:
-        """Retrieve all library artists from Tidal."""
-        user_id = self.auth.user_id
-        path = f"users/{user_id}/favorites/artists"
+    async def get_similar_tracks(self, prov_track_id: str, limit: int = 25) -> list[Track]:
+        """Get similar tracks for given track id."""
+        try:
+            api_result = await self._get_data(f"tracks/{prov_track_id}/radios")
+            similar_tracks = self._extract_data(api_result)
+            return [self._parse_track(track_obj) for track_obj in similar_tracks.get("items", [])]
+        except MediaNotFoundError as err:
+            raise MediaNotFoundError(f"Track {prov_track_id} not found") from err
 
-        async for artist_item in self._paginate_api(path, nested_key="item"):
-            if artist_item and artist_item.get("id"):
-                yield self._parse_artist(artist_item)
+    #
+    # ITEM RETRIEVAL METHODS
+    #
 
-    async def get_library_albums(self) -> AsyncGenerator[Album, None]:
-        """Retrieve all library albums from Tidal."""
-        user_id = self.auth.user_id
-        path = f"users/{user_id}/favorites/albums"
+    @handle_item_errors("Artist")
+    async def get_artist(self, prov_artist_id: str) -> Artist:
+        """Get artist details for given artist id."""
+        api_result = await self._get_data(f"artists/{prov_artist_id}")
+        artist_obj = self._extract_data(api_result)
+        return self._parse_artist(artist_obj)
 
-        async for album_item in self._paginate_api(path, nested_key="item"):
-            if album_item and album_item.get("id"):
-                yield self._parse_album(album_item)
+    @handle_item_errors("Album")
+    async def get_album(self, prov_album_id: str) -> Album:
+        """Get album details for given album id."""
+        api_result = await self._get_data(f"albums/{prov_album_id}")
+        album_obj = self._extract_data(api_result)
+        return self._parse_album(album_obj)
 
-    async def get_library_tracks(self) -> AsyncGenerator[Track, None]:
-        """Retrieve library tracks from Tidal."""
-        user_id = self.auth.user_id
-        path = f"users/{user_id}/favorites/tracks"
+    @handle_item_errors("Track")
+    async def get_track(self, prov_track_id: str) -> Track:
+        """Get track details for given track id."""
+        api_result = await self._get_data(f"tracks/{prov_track_id}")
+        track_obj = self._extract_data(api_result)
+        track = self._parse_track(track_obj)
+        # Get additional details like lyrics if needed
+        with suppress(MediaNotFoundError):
+            api_result = await self._get_data(f"tracks/{prov_track_id}/lyrics")
+            lyrics_data = self._extract_data(api_result)
 
-        async for track_item in self._paginate_api(path, nested_key="item"):
-            if track_item and track_item.get("id"):
-                yield self._parse_track(track_item)
+            if lyrics_data and "text" in lyrics_data:
+                track.metadata.lyrics = lyrics_data["text"]
 
-    async def get_library_playlists(self) -> AsyncGenerator[Playlist, None]:
-        """Retrieve all library playlists from the provider."""
-        user_id = self.auth.user_id
-        path = f"users/{user_id}/playlistsAndFavoritePlaylists"
+        return track
 
-        async for playlist_item in self._paginate_api(path, nested_key="playlist"):
-            if playlist_item and playlist_item.get("uuid"):
-                yield self._parse_playlist(playlist_item)
+    @handle_item_errors("Playlist")
+    async def get_playlist(self, prov_playlist_id: str) -> Playlist:
+        """Get playlist details for given playlist id."""
+        api_result = await self._get_data(f"playlists/{prov_playlist_id}")
+        playlist_obj = self._extract_data(api_result)
+        return self._parse_playlist(playlist_obj)
 
     async def get_album_tracks(self, prov_album_id: str) -> list[Track]:
         """Get album tracks for given album id."""
@@ -685,124 +714,6 @@ class TidalProvider(MusicProvider):
             track.position = offset + index
             result.append(track)
         return result
-
-    async def get_similar_tracks(self, prov_track_id: str, limit: int = 25) -> list[Track]:
-        """Get similar tracks for given track id."""
-        try:
-            api_result = await self._get_data(f"tracks/{prov_track_id}/radios")
-            similar_tracks = self._extract_data(api_result)
-            return [self._parse_track(track_obj) for track_obj in similar_tracks.get("items", [])]
-        except MediaNotFoundError as err:
-            raise MediaNotFoundError(f"Track {prov_track_id} not found") from err
-
-    async def library_add(self, item: MediaItemType) -> bool:
-        """Add item to library."""
-        endpoint = None
-        data = {}
-
-        if item.media_type == MediaType.ARTIST:
-            endpoint = "favorites/artists"
-            data = {"artistId": item.item_id}
-        elif item.media_type == MediaType.ALBUM:
-            endpoint = "favorites/albums"
-            data = {"albumId": item.item_id}
-        elif item.media_type == MediaType.TRACK:
-            endpoint = "favorites/tracks"
-            data = {"trackId": item.item_id}
-        elif item.media_type == MediaType.PLAYLIST:
-            endpoint = "favorites/playlists"
-            data = {"playlistId": item.item_id}
-        else:
-            return False
-
-        await self._post_data(endpoint, data=data)
-        return True
-
-    async def library_remove(self, prov_item_id: str, media_type: MediaType) -> bool:
-        """Remove item from library."""
-        try:
-            if media_type == MediaType.ARTIST:
-                await self._delete_data("favorites/artists", data={"artistId": prov_item_id})
-            elif media_type == MediaType.ALBUM:
-                await self._delete_data("favorites/albums", data={"albumId": prov_item_id})
-            elif media_type == MediaType.TRACK:
-                await self._delete_data("favorites/tracks", data={"trackId": prov_item_id})
-            elif media_type == MediaType.PLAYLIST:
-                await self._delete_data("favorites/playlists", data={"playlistId": prov_item_id})
-            else:
-                return False
-
-            return True
-        except Exception as err:
-            self.logger.error("Failed to remove item from library: %s", err)
-            return False
-
-    async def add_playlist_tracks(self, prov_playlist_id: str, prov_track_ids: list[str]) -> None:
-        """Add track(s) to playlist."""
-        try:
-            # Get playlist details first with ETag
-            api_result = await self._get_data(f"playlists/{prov_playlist_id}", return_etag=True)
-            playlist_obj, etag = self._extract_data_and_etag(api_result)
-
-            # Send using form-encoded data like the synchronous library
-            data = {
-                "onArtifactNotFound": "SKIP",
-                "trackIds": ",".join(map(str, prov_track_ids)),
-                "toIndex": playlist_obj["numberOfTracks"],
-                "onDupes": "SKIP",
-            }
-
-            # Force using form data instead of JSON and include ETag
-            headers = {"If-None-Match": etag} if etag else {}
-            await self._post_data(
-                f"playlists/{prov_playlist_id}/items",
-                data=data,
-                as_form=True,
-                headers=headers,
-            )
-
-        except MediaNotFoundError as err:
-            raise MediaNotFoundError(f"Playlist {prov_playlist_id} not found") from err
-
-    async def remove_playlist_tracks(
-        self, prov_playlist_id: str, positions_to_remove: tuple[int, ...]
-    ) -> None:
-        """Remove track(s) from playlist."""
-        try:
-            # Get playlist with ETag first
-            api_result = await self._get_data(f"playlists/{prov_playlist_id}", return_etag=True)
-            _, etag = self._extract_data_and_etag(api_result)
-
-            # Format positions as string in URL path - this is key to how Tidal's API works
-            # Tidal uses directly indices in path, not track IDs in the body
-            position_string = ",".join([str(pos - 1) for pos in positions_to_remove])
-
-            # Use DELETE with If-None-Match header
-            headers = {"If-None-Match": etag} if etag else {}
-
-            # Make a direct DELETE request to the endpoint with positions in the URL path
-            await self._delete_data(
-                f"playlists/{prov_playlist_id}/items/{position_string}", headers=headers
-            )
-
-        except Exception as err:
-            self.logger.error("Failed to remove tracks from playlist: %s", err)
-            raise ResourceTemporarilyUnavailable("Failed to remove playlist tracks") from err
-
-    async def create_playlist(self, name: str) -> Playlist:
-        """Create a new playlist on provider with given name."""
-        # Create playlist using form-encoded data
-        data = {"title": name, "description": ""}
-
-        try:
-            playlist_obj = await self._post_data(
-                f"users/{self.auth.user_id}/playlists", data=data, as_form=True
-            )
-
-            return self._parse_playlist(playlist_obj)
-        except Exception as err:
-            self.logger.error("Failed to create playlist: %s", err)
-            raise ResourceTemporarilyUnavailable("Failed to create playlist") from err
 
     async def get_stream_details(
         self, item_id: str, media_type: MediaType = MediaType.TRACK
@@ -871,52 +782,6 @@ class TidalProvider(MusicProvider):
             allow_seek=True,
         )
 
-    @handle_item_errors("Artist")
-    async def get_artist(self, prov_artist_id: str) -> Artist:
-        """Get artist details for given artist id."""
-        api_result = await self._get_data(f"artists/{prov_artist_id}")
-        artist_obj = self._extract_data(api_result)
-        return self._parse_artist(artist_obj)
-
-    @handle_item_errors("Album")
-    async def get_album(self, prov_album_id: str) -> Album:
-        """Get album details for given album id."""
-        api_result = await self._get_data(f"albums/{prov_album_id}")
-        album_obj = self._extract_data(api_result)
-        return self._parse_album(album_obj)
-
-    @handle_item_errors("Track")
-    async def get_track(self, prov_track_id: str) -> Track:
-        """Get track details for given track id."""
-        api_result = await self._get_data(f"tracks/{prov_track_id}")
-        track_obj = self._extract_data(api_result)
-        track = self._parse_track(track_obj)
-        # Get additional details like lyrics if needed
-        with suppress(MediaNotFoundError):
-            api_result = await self._get_data(f"tracks/{prov_track_id}/lyrics")
-            lyrics_data = self._extract_data(api_result)
-
-            if lyrics_data and "text" in lyrics_data:
-                track.metadata.lyrics = lyrics_data["text"]
-
-        return track
-
-    @handle_item_errors("Playlist")
-    async def get_playlist(self, prov_playlist_id: str) -> Playlist:
-        """Get playlist details for given playlist id."""
-        api_result = await self._get_data(f"playlists/{prov_playlist_id}")
-        playlist_obj = self._extract_data(api_result)
-        return self._parse_playlist(playlist_obj)
-
-    def get_item_mapping(self, media_type: MediaType, key: str, name: str) -> ItemMapping:
-        """Create a generic item mapping."""
-        return ItemMapping(
-            media_type=media_type,
-            item_id=key,
-            provider=self.lookup_key,
-            name=name,
-        )
-
     async def _get_track_by_isrc(self, item_id: str) -> Track | None:
         """Get track by ISRC from library item, with caching."""
         # Try to get from cache first
@@ -983,7 +848,171 @@ class TidalProvider(MusicProvider):
 
         return self._parse_track(track_obj)
 
-    # Parsers
+    def get_item_mapping(self, media_type: MediaType, key: str, name: str) -> ItemMapping:
+        """Create a generic item mapping."""
+        return ItemMapping(
+            media_type=media_type,
+            item_id=key,
+            provider=self.lookup_key,
+            name=name,
+        )
+
+    #
+    # LIBRARY MANAGEMENT
+    #
+
+    async def get_library_artists(self) -> AsyncGenerator[Artist, None]:
+        """Retrieve all library artists from Tidal."""
+        user_id = self.auth.user_id
+        path = f"users/{user_id}/favorites/artists"
+
+        async for artist_item in self._paginate_api(path, nested_key="item"):
+            if artist_item and artist_item.get("id"):
+                yield self._parse_artist(artist_item)
+
+    async def get_library_albums(self) -> AsyncGenerator[Album, None]:
+        """Retrieve all library albums from Tidal."""
+        user_id = self.auth.user_id
+        path = f"users/{user_id}/favorites/albums"
+
+        async for album_item in self._paginate_api(path, nested_key="item"):
+            if album_item and album_item.get("id"):
+                yield self._parse_album(album_item)
+
+    async def get_library_tracks(self) -> AsyncGenerator[Track, None]:
+        """Retrieve library tracks from Tidal."""
+        user_id = self.auth.user_id
+        path = f"users/{user_id}/favorites/tracks"
+
+        async for track_item in self._paginate_api(path, nested_key="item"):
+            if track_item and track_item.get("id"):
+                yield self._parse_track(track_item)
+
+    async def get_library_playlists(self) -> AsyncGenerator[Playlist, None]:
+        """Retrieve all library playlists from the provider."""
+        user_id = self.auth.user_id
+        path = f"users/{user_id}/playlistsAndFavoritePlaylists"
+
+        async for playlist_item in self._paginate_api(path, nested_key="playlist"):
+            if playlist_item and playlist_item.get("uuid"):
+                yield self._parse_playlist(playlist_item)
+
+    async def library_add(self, item: MediaItemType) -> bool:
+        """Add item to library."""
+        endpoint = None
+        data = {}
+
+        if item.media_type == MediaType.ARTIST:
+            endpoint = "favorites/artists"
+            data = {"artistId": item.item_id}
+        elif item.media_type == MediaType.ALBUM:
+            endpoint = "favorites/albums"
+            data = {"albumId": item.item_id}
+        elif item.media_type == MediaType.TRACK:
+            endpoint = "favorites/tracks"
+            data = {"trackId": item.item_id}
+        elif item.media_type == MediaType.PLAYLIST:
+            endpoint = "favorites/playlists"
+            data = {"playlistId": item.item_id}
+        else:
+            return False
+
+        await self._post_data(endpoint, data=data)
+        return True
+
+    async def library_remove(self, prov_item_id: str, media_type: MediaType) -> bool:
+        """Remove item from library."""
+        try:
+            if media_type == MediaType.ARTIST:
+                await self._delete_data("favorites/artists", data={"artistId": prov_item_id})
+            elif media_type == MediaType.ALBUM:
+                await self._delete_data("favorites/albums", data={"albumId": prov_item_id})
+            elif media_type == MediaType.TRACK:
+                await self._delete_data("favorites/tracks", data={"trackId": prov_item_id})
+            elif media_type == MediaType.PLAYLIST:
+                await self._delete_data("favorites/playlists", data={"playlistId": prov_item_id})
+            else:
+                return False
+
+            return True
+        except Exception as err:
+            self.logger.error("Failed to remove item from library: %s", err)
+            return False
+
+    #
+    # PLAYLIST MANAGEMENT
+    #
+
+    async def create_playlist(self, name: str) -> Playlist:
+        """Create a new playlist on provider with given name."""
+        # Create playlist using form-encoded data
+        data = {"title": name, "description": ""}
+
+        try:
+            playlist_obj = await self._post_data(
+                f"users/{self.auth.user_id}/playlists", data=data, as_form=True
+            )
+
+            return self._parse_playlist(playlist_obj)
+        except Exception as err:
+            self.logger.error("Failed to create playlist: %s", err)
+            raise ResourceTemporarilyUnavailable("Failed to create playlist") from err
+
+    async def add_playlist_tracks(self, prov_playlist_id: str, prov_track_ids: list[str]) -> None:
+        """Add track(s) to playlist."""
+        try:
+            # Get playlist details first with ETag
+            api_result = await self._get_data(f"playlists/{prov_playlist_id}", return_etag=True)
+            playlist_obj, etag = self._extract_data_and_etag(api_result)
+
+            # Send using form-encoded data like the synchronous library
+            data = {
+                "onArtifactNotFound": "SKIP",
+                "trackIds": ",".join(map(str, prov_track_ids)),
+                "toIndex": playlist_obj["numberOfTracks"],
+                "onDupes": "SKIP",
+            }
+
+            # Force using form data instead of JSON and include ETag
+            headers = {"If-None-Match": etag} if etag else {}
+            await self._post_data(
+                f"playlists/{prov_playlist_id}/items",
+                data=data,
+                as_form=True,
+                headers=headers,
+            )
+
+        except MediaNotFoundError as err:
+            raise MediaNotFoundError(f"Playlist {prov_playlist_id} not found") from err
+
+    async def remove_playlist_tracks(
+        self, prov_playlist_id: str, positions_to_remove: tuple[int, ...]
+    ) -> None:
+        """Remove track(s) from playlist."""
+        try:
+            # Get playlist with ETag first
+            api_result = await self._get_data(f"playlists/{prov_playlist_id}", return_etag=True)
+            _, etag = self._extract_data_and_etag(api_result)
+
+            # Format positions as string in URL path - this is key to how Tidal's API works
+            # Tidal uses directly indices in path, not track IDs in the body
+            position_string = ",".join([str(pos - 1) for pos in positions_to_remove])
+
+            # Use DELETE with If-None-Match header
+            headers = {"If-None-Match": etag} if etag else {}
+
+            # Make a direct DELETE request to the endpoint with positions in the URL path
+            await self._delete_data(
+                f"playlists/{prov_playlist_id}/items/{position_string}", headers=headers
+            )
+
+        except Exception as err:
+            self.logger.error("Failed to remove tracks from playlist: %s", err)
+            raise ResourceTemporarilyUnavailable("Failed to remove playlist tracks") from err
+
+    #
+    # ITEM PARSERS
+    #
 
     def _parse_artist(self, artist_obj: dict[str, Any]) -> Artist:
         """Parse tidal artist object to generic layout."""
