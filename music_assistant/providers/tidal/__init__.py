@@ -620,7 +620,9 @@ class TidalProvider(MusicProvider):
     async def get_similar_tracks(self, prov_track_id: str, limit: int = 25) -> list[Track]:
         """Get similar tracks for given track id."""
         try:
-            api_result = await self._get_data(f"tracks/{prov_track_id}/radios")
+            api_result = await self._get_data(
+                f"tracks/{prov_track_id}/radio", params={"limit": limit}
+            )
             similar_tracks = self._extract_data(api_result)
             return [self._parse_track(track_obj) for track_obj in similar_tracks.get("items", [])]
         except MediaNotFoundError as err:
