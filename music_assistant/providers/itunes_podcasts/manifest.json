@@ -9,6 +9,7 @@
   "requirements": [
     "podcastparser==0.6.10"
   ],
+  "icon": "podcast",
   "documentation": "https://music-assistant.io/music-providers/itunes-podcasts/",
   "multi_instance": false
 }
