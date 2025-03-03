@@ -919,23 +919,31 @@ class TidalProvider(MusicProvider):
         else:
             return False
 
-        await self._post_data(endpoint, data=data)
+        endpoint = f"users/{self.auth.user_id}/{endpoint}"
+
+        await self._post_data(endpoint, data=data, as_form=True)
         return True
 
+    # TODO Favourites not working
     async def library_remove(self, prov_item_id: str, media_type: MediaType) -> bool:
         """Remove item from library."""
-        try:
-            if media_type == MediaType.ARTIST:
-                await self._delete_data("favorites/artists", data={"artistId": prov_item_id})
-            elif media_type == MediaType.ALBUM:
-                await self._delete_data("favorites/albums", data={"albumId": prov_item_id})
-            elif media_type == MediaType.TRACK:
-                await self._delete_data("favorites/tracks", data={"trackId": prov_item_id})
-            elif media_type == MediaType.PLAYLIST:
-                await self._delete_data("favorites/playlists", data={"playlistId": prov_item_id})
-            else:
-                return False
+        endpoint = None
 
+        if media_type == MediaType.ARTIST:
+            endpoint = f"favorites/artists/{prov_item_id}"
+        elif media_type == MediaType.ALBUM:
+            endpoint = f"favorites/albums/{prov_item_id}"
+        elif media_type == MediaType.TRACK:
+            endpoint = f"favorites/tracks/{prov_item_id}"
+        elif media_type == MediaType.PLAYLIST:
+            endpoint = f"favorites/playlists/{prov_item_id}"
+        else:
+            return False
+
+        endpoint = f"users/{self.auth.user_id}/{endpoint}"
+
+        try:
+            await self._delete_data(endpoint)
             return True
         except Exception as err:
             self.logger.error("Failed to remove item from library: %s", err)
